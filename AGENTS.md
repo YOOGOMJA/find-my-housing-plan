@@ -63,3 +63,10 @@ docs/plans/                 # 설계 및 구현 계획
 - **API 필드명 불일치**: 공공 API 엔드포인트마다 필드명이 다름. 실제 응답은 `docs/api-response-sample.json` 참고 후 n8n Code 노드 파싱 부분 업데이트 필요.
 - **filter.js 먼저, n8n 나중**: 로직 변경 시 반드시 `filter.test.js`로 검증 후 n8n Code 노드에 이식.
 - **워크플로우 내보내기 필수**: n8n UI 수정 후 JSON을 `sh-lh-alert/workflow/`에 내보내고 커밋.
+
+## 에이전트 응답 규칙
+
+- 모든 응답과 답장은 기본적으로 한글로 작성한다.
+- 사용자가 질문 의도를 밝혔거나 확인 질문이 필요한 경우, 지원되는 질문 도구를 우선 사용한다.
+- Codex 환경에서는 `request_user_input`(Plan 모드 전용)을 우선 사용하고, Default 모드에서는 일반 텍스트 질문으로 대체한다.
+- Claude 환경에서는 `AskUserQuestionTool`/`AskUserQuestion` 계열 도구가 노출된 경우 이를 우선 사용하고, 해당 도구가 없으면 일반 텍스트 질문으로 대체한다.
