@@ -70,3 +70,10 @@ docs/plans/                 # 설계 및 구현 계획
 - 사용자가 질문 의도를 밝혔거나 확인 질문이 필요한 경우, 지원되는 질문 도구를 우선 사용한다.
 - Codex 환경에서는 `request_user_input`(Plan 모드 전용)을 우선 사용하고, Default 모드에서는 일반 텍스트 질문으로 대체한다.
 - Claude 환경에서는 `AskUserQuestionTool`/`AskUserQuestion` 계열 도구가 노출된 경우 이를 우선 사용하고, 해당 도구가 없으면 일반 텍스트 질문으로 대체한다.
+
+## 협업 규칙 (Commit / Issue / PR)
+
+- 상세 규칙은 `CONTRIBUTING.md`를 기준으로 따른다.
+- 작업 시작 전 GitHub Issue를 생성하고, 필요하면 유사/중복 이슈여도 현재 작업 추적용으로 만든다.
+- 커밋은 Conventional Commits 형식을 따르며 `scope`는 이슈 번호(`(#123)`)를 사용한다.
+- 커밋 메시지, 이슈, PR 제목/본문은 기본적으로 한글로 작성한다.

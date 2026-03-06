@@ -1,0 +1,47 @@
+name: 버그 리포트
+description: 재현 가능한 버그를 보고합니다.
+title: "[버그] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: 문제 요약
+      description: 어떤 문제가 발생했는지 한국어로 작성해주세요.
+      placeholder: 예) SH 공고 필터에서 지역 조건이 무시됩니다.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 재현 절차
+      description: 문제를 재현하는 순서를 작성해주세요.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 기대 결과
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 실제 결과
+    validations:
+      required: true
+
+  - type: textarea
+    id: done
+    attributes:
+      label: 완료 조건 (Definition of Done)
+      description: 이 이슈가 완료되었다고 판단할 기준을 작성해주세요.
+    validations:
+      required: true
