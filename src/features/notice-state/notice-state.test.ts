@@ -3,8 +3,8 @@ import {
   markProcessedNotices,
   toProcessedKey,
   toProcessedKeySet,
-} from "./state";
-import { Notice, ParsedNotice } from "./types";
+} from ".";
+import { Notice, ParsedNotice } from "../../entities/notice";
 
 const baseNotice: Notice = {
   panId: "PAN-001",

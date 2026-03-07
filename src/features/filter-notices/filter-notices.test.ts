@@ -1,5 +1,6 @@
-import { filterNotices, matchesHousingPreference, matchesNoticeEligibility } from "./filter";
-import { ParsedNotice, UserProfile } from "./types";
+import { filterNotices, matchesHousingPreference, matchesNoticeEligibility } from ".";
+import { ParsedNotice } from "../../entities/notice";
+import { UserProfile } from "../../entities/user";
 
 const baseUser: UserProfile = {
   age: 30,

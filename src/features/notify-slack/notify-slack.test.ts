@@ -1,5 +1,5 @@
-import { formatSlackMessage, groupNoticesByStatus } from "./notifier";
-import { ParsedNotice } from "./types";
+import { formatSlackMessage, groupNoticesByStatus } from ".";
+import { ParsedNotice } from "../../entities/notice";
 
 const notice: ParsedNotice = {
   panId: "2026-000050",

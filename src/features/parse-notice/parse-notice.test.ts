@@ -1,4 +1,4 @@
-import { buildClaudePrompt, extractJsonFromText } from "./parser";
+import { buildClaudePrompt, extractJsonFromText } from ".";
 
 describe("extractJsonFromText", () => {
   it("마크다운 코드블록 없는 JSON 파싱", () => {

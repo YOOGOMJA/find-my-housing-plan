@@ -5,8 +5,8 @@ import {
   isNoticeOpen,
   parsePanId,
   shouldCollectByProcessed,
-} from "./collector";
-import { toProcessedKey } from "./state";
+} from ".";
+import { toProcessedKey } from "../notice-state";
 
 describe("extractItems", () => {
   it("배열 구조 응답에서 아이템 배열을 추출한다", () => {

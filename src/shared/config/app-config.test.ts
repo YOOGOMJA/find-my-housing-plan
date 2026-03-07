@@ -1,4 +1,4 @@
-import { loadConfig } from "./config";
+import { loadConfig } from ".";
 
 describe("loadConfig", () => {
   const originalEnv = process.env;
