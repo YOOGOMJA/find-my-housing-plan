@@ -30,6 +30,11 @@ interface PdfjsModule {
 
 let pdfjsLib: PdfjsModule | null = null;
 
+export interface ParseNoticesResult {
+  parsed: ParsedNotice[];
+  failedPanIds: string[];
+}
+
 function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -240,8 +245,9 @@ export async function parseNotices(
   notices: Notice[],
   anthropicKey: string,
   onProgress?: ProgressReporter,
-): Promise<ParsedNotice[]> {
+): Promise<ParseNoticesResult> {
   const results: ParsedNotice[] = [];
+  const failedPanIds: string[] = [];
   const total = notices.length;
   let current = 0;
 
@@ -279,10 +285,14 @@ export async function parseNotices(
     } catch (error) {
       console.error(`[parser] ${notice.panId} 파싱 실패: ${getErrorMessage(error)}`);
       results.push({ ...notice, conditions: emptyConditions() });
+      failedPanIds.push(notice.panId);
       current += 1;
       emitProgress(`공고문 파싱 ${current}/${total} (${notice.title}) - 실패`);
     }
   }
 
-  return results;
+  return {
+    parsed: results,
+    failedPanIds,
+  };
 }
