@@ -9,6 +9,7 @@
   "scripts": {
     "start": "ts-node src/index.ts",
     "test": "jest",
+    "income:standard": "ts-node src/app/income-standard/cli.ts",
     "env:setup": "ts-node src/app/env-setup/cli.ts",
     "env:setup:profile": "ts-node src/app/env-setup/cli.ts profile",
     "env:setup:filter": "ts-node src/app/env-setup/cli.ts filter",

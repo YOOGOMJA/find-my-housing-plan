@@ -1,5 +1,11 @@
 import { EligibilityCheck, EligibilityResult, Notice, ParsedNotice } from "../../../entities/notice";
 import { UserProfile } from "../../../entities/user";
+import {
+  IncomeStandardCatalog,
+  detectIncomePercent,
+  resolveHouseholdIncome,
+  resolveIncomeStandardSelection,
+} from "../../income-standard";
 
 const REGION_ALIAS_TO_CODE: Record<string, string> = {
   전국: "00",
@@ -42,6 +48,10 @@ const REGION_ALIAS_TO_CODE: Record<string, string> = {
 };
 
 type HousingPreferenceNotice = Pick<Notice, "region" | "housingType" | "supplyInfo">;
+export interface IncomeEligibilityContext {
+  incomeStandardCatalog?: IncomeStandardCatalog | null;
+  forcedIncomeStandardYear?: number | null;
+}
 
 function parseAssetLimit(text: string): number | null {
   const eokMatch = text.match(/([\d.]+)\s*억/);
@@ -69,7 +79,7 @@ function parseAssetLimit(text: string): number | null {
   return matched ? total : null;
 }
 
-function parseIncomeLimit(text: string): number | null {
+function parseAbsoluteIncomeLimit(text: string): number | null {
   const amountMatches = [...text.matchAll(/([\d,]+(?:\.\d+)?)\s*만\s*원/g)];
   if (amountMatches.length > 0) {
     const values = amountMatches
@@ -88,6 +98,52 @@ function parseIncomeLimit(text: string): number | null {
   }
 
   return null;
+}
+
+function resolveIncomeLimit(
+  notice: ParsedNotice,
+  user: UserProfile,
+  context?: IncomeEligibilityContext,
+): { limit: number | null; reason: string | null } {
+  const absolute = parseAbsoluteIncomeLimit(notice.conditions.incomeLimit ?? "");
+  if (absolute !== null) {
+    return { limit: absolute, reason: null };
+  }
+
+  const percent = detectIncomePercent(notice.conditions.incomeLimit ?? "");
+  if (percent === null) {
+    return { limit: null, reason: null };
+  }
+
+  if (context?.incomeStandardCatalog === undefined) {
+    return { limit: null, reason: null };
+  }
+
+  const forcedYear = context?.forcedIncomeStandardYear ?? null;
+  const selection = resolveIncomeStandardSelection(
+    context?.incomeStandardCatalog ?? null,
+    notice.noticeDate,
+    forcedYear,
+  );
+  if (!selection.standard) {
+    return {
+      limit: null,
+      reason: selection.reason ?? `소득 기준표를 찾지 못했습니다 (요청 연도: ${selection.requestedYear ?? "없음"})`,
+    };
+  }
+
+  const householdIncome = resolveHouseholdIncome(selection.standard, user.householdSize);
+  if (householdIncome === null) {
+    return {
+      limit: null,
+      reason: `가구원수 ${user.householdSize}명은 소득 기준표 범위를 벗어납니다.`,
+    };
+  }
+
+  return {
+    limit: householdIncome * (percent / 100),
+    reason: null,
+  };
 }
 
 function hasExtractedEligibilityData(notice: ParsedNotice): boolean {
@@ -161,7 +217,11 @@ export function matchesHousingPreference(notice: HousingPreferenceNotice, user: 
   return true;
 }
 
-export function matchesNoticeEligibility(notice: ParsedNotice, user: UserProfile): boolean {
+export function matchesNoticeEligibility(
+  notice: ParsedNotice,
+  user: UserProfile,
+  context?: IncomeEligibilityContext,
+): boolean {
   const { conditions } = notice;
 
   if (notice.pdfUrl && !hasExtractedEligibilityData(notice)) {
@@ -169,7 +229,10 @@ export function matchesNoticeEligibility(notice: ParsedNotice, user: UserProfile
   }
 
   if (conditions.incomeLimit) {
-    const limit = parseIncomeLimit(conditions.incomeLimit);
+    const { limit, reason } = resolveIncomeLimit(notice, user, context);
+    if (reason) {
+      console.warn(`[filter] ${notice.panId} 소득 판정 기준표 확인 필요: ${reason}`);
+    }
     if (limit !== null && user.income > limit) {
       return false;
     }
@@ -226,12 +289,19 @@ export function matchesPrice(notice: ParsedNotice, user: UserProfile): boolean {
   return true;
 }
 
-export function buildEligibilityChecks(notice: ParsedNotice, user: UserProfile): EligibilityCheck[] {
+export function buildEligibilityChecks(
+  notice: ParsedNotice,
+  user: UserProfile,
+  context?: IncomeEligibilityContext,
+): EligibilityCheck[] {
   const checks: EligibilityCheck[] = [];
 
   // 소득 판정
   if (notice.conditions.incomeLimit) {
-    const limit = parseIncomeLimit(notice.conditions.incomeLimit);
+    const { limit, reason } = resolveIncomeLimit(notice, user, context);
+    if (reason) {
+      console.warn(`[filter] ${notice.panId} 소득 판정 기준표 확인 필요: ${reason}`);
+    }
     const result: EligibilityResult = limit === null ? "unknown" : user.income <= limit ? "pass" : "fail";
     checks.push({
       label: "소득",
@@ -294,12 +364,16 @@ export function buildEligibilityChecks(notice: ParsedNotice, user: UserProfile):
   return checks;
 }
 
-export function filterNotices(notices: ParsedNotice[], user: UserProfile): ParsedNotice[] {
+export function filterNotices(
+  notices: ParsedNotice[],
+  user: UserProfile,
+  context?: IncomeEligibilityContext,
+): ParsedNotice[] {
   return notices.filter(
     (notice) =>
       matchesHousingPreference(notice, user) &&
       matchesPrice(notice, user) &&
-      matchesNoticeEligibility(notice, user),
+      matchesNoticeEligibility(notice, user, context),
     // matchesDistrict는 소프트 필터 — 하드 필터로 제외하지 않음.
     // TODO: 선호 구 포함 공고를 상단 정렬하는 기능 미구현.
     //       현재는 formatSlackMessage에서 "[선호지역]" 강조 표시만 적용됨.

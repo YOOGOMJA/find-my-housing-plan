@@ -3,7 +3,7 @@ import * as https from "https";
 import * as path from "path";
 import { EligibilityCheck, NoticeApplicationStatus, ParsedNotice } from "../../../entities/notice";
 import { UserProfile } from "../../../entities/user";
-import { buildEligibilityChecks } from "../../filter-notices";
+import { buildEligibilityChecks, IncomeEligibilityContext } from "../../filter-notices";
 import { ProgressReporter } from "../../../shared/types";
 
 export interface SlackMessage {
@@ -53,6 +53,7 @@ interface SendSlackNotificationOptions {
   keepAlive?: boolean;
   includeFilterSummary?: boolean;
   isReprocess?: boolean;
+  incomeEligibilityContext?: IncomeEligibilityContext;
 }
 
 const HOUSING_TYPE_CODE_LABEL: Record<string, string> = {
@@ -659,6 +660,7 @@ export async function sendSlackNotification(
   const keepAlive = options?.keepAlive ?? true;
   const includeFilterSummary = options?.includeFilterSummary ?? true;
   const isReprocess = options?.isReprocess ?? false;
+  const incomeEligibilityContext = options?.incomeEligibilityContext;
   const agent = keepAlive ? new https.Agent({ keepAlive: true }) : undefined;
   const grouped = groupNoticesByStatus(notices);
   const order: SlackNoticeBucket[] = ["open", "upcoming", "unknown"];
@@ -764,7 +766,7 @@ export async function sendSlackNotification(
       }
 
       for (const notice of bucketNotices) {
-        const checks = buildEligibilityChecks(notice, user);
+        const checks = buildEligibilityChecks(notice, user, incomeEligibilityContext);
         const message = formatSlackMessage(notice, checks, user.districts);
         try {
           const result = await postToSlack(webhookUrl, message, agent);

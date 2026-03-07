@@ -20,6 +20,10 @@ export interface AppConfig {
     lookbackMonths: number;
     maxNotifications: number;
   };
+  incomeStandard: {
+    path: string;
+    year: number | null;
+  };
 }
 
 function requireEnv(key: string): string {
@@ -68,6 +72,20 @@ function parsePositiveIntValue(value: string, key: string): number {
   if (parsed <= 0) {
     throw new Error(`환경변수는 1 이상의 정수여야 합니다: ${key}`);
   }
+  return parsed;
+}
+
+function parseOptionalYearValue(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isInteger(parsed)) {
+    throw new Error("INCOME_STANDARD_YEAR는 정수여야 합니다.");
+  }
+
   return parsed;
 }
 
@@ -148,6 +166,11 @@ export function loadConfig(): AppConfig {
     ),
   };
 
+  const incomeStandard = {
+    path: optionalEnv("INCOME_STANDARD_PATH", "data/income-standards/latest.json"),
+    year: parseOptionalYearValue(optionalEnv("INCOME_STANDARD_YEAR", "")),
+  };
+
   return {
     apiKey,
     anthropicKey,
@@ -155,6 +178,7 @@ export function loadConfig(): AppConfig {
     user,
     performance,
     reprocess,
+    incomeStandard,
   };
 }
 
