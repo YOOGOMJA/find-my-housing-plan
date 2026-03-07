@@ -120,6 +120,7 @@ export async function runMain(): Promise<void> {
       config.slackWebhookUrl,
       matched,
       config.user,
+      runId,
       progress.report,
       manualReviewNotices,
     );

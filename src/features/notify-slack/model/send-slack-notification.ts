@@ -1,4 +1,6 @@
+import * as fs from "fs";
 import * as https from "https";
+import * as path from "path";
 import { EligibilityCheck, NoticeApplicationStatus, ParsedNotice } from "../../../entities/notice";
 import { UserProfile } from "../../../entities/user";
 import { buildEligibilityChecks } from "../../filter-notices";
@@ -15,6 +17,32 @@ export type ManualReviewReason = "no_pdf" | "parse_failed";
 export interface ManualReviewNotice {
   notice: ParsedNotice;
   reason: ManualReviewReason;
+}
+
+export type SlackHistoryMessageType = "batch_header" | "notice" | "manual_review_header" | "manual_review_notice";
+
+export interface SlackHistoryRecord {
+  timestamp: string;
+  runId: string;
+  panId: string | null;
+  messageType: SlackHistoryMessageType;
+  applicationStatus: NoticeApplicationStatus | null;
+  payloadText: string;
+  status: "success" | "failed";
+  httpStatus: number | null;
+  errorMessage: string | null;
+}
+
+interface SlackHistoryRecordInput {
+  runId: string;
+  panId: string | null;
+  messageType: SlackHistoryMessageType;
+  applicationStatus: NoticeApplicationStatus | null;
+  payloadText: string;
+  status: "success" | "failed";
+  httpStatus: number | null;
+  errorMessage: string | null;
+  nowIso?: string;
 }
 
 const HOUSING_TYPE_CODE_LABEL: Record<string, string> = {
@@ -379,7 +407,54 @@ export function formatManualReviewMessage(item: ManualReviewNotice): SlackMessag
   return { text: lines.join("\n") };
 }
 
-function postToSlack(webhookUrl: string, message: SlackMessage): Promise<void> {
+class SlackPostError extends Error {
+  public readonly statusCode: number | null;
+
+  constructor(message: string, statusCode: number | null) {
+    super(message);
+    this.name = "SlackPostError";
+    this.statusCode = statusCode;
+  }
+}
+
+function toHistoryDate(nowIso: string): string {
+  return nowIso.slice(0, 10);
+}
+
+export function getSlackHistoryPath(nowIso = new Date().toISOString()): string {
+  return path.resolve(process.cwd(), "data", "slack-history", `${toHistoryDate(nowIso)}.jsonl`);
+}
+
+export function createSlackHistoryRecord(input: SlackHistoryRecordInput): SlackHistoryRecord {
+  return {
+    timestamp: input.nowIso ?? new Date().toISOString(),
+    runId: input.runId,
+    panId: input.panId,
+    messageType: input.messageType,
+    applicationStatus: input.applicationStatus,
+    payloadText: input.payloadText,
+    status: input.status,
+    httpStatus: input.httpStatus,
+    errorMessage: input.errorMessage,
+  };
+}
+
+export function appendSlackHistoryRecord(record: SlackHistoryRecord): void {
+  const filePath = getSlackHistoryPath(record.timestamp);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.appendFileSync(filePath, `${JSON.stringify(record)}\n`, "utf-8");
+}
+
+function tryAppendSlackHistory(record: SlackHistoryRecord): void {
+  try {
+    appendSlackHistoryRecord(record);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[notifier] Slack 히스토리 저장 실패: ${message}`);
+  }
+}
+
+function postToSlack(webhookUrl: string, message: SlackMessage): Promise<{ statusCode: number }> {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify(message);
     const url = new URL(webhookUrl);
@@ -399,17 +474,21 @@ function postToSlack(webhookUrl: string, message: SlackMessage): Promise<void> {
       (response) => {
         response.resume();
         response.on("end", () => {
-          if (response.statusCode === 200) {
-            resolve();
+          const statusCode = response.statusCode ?? 0;
+
+          if (statusCode === 200) {
+            resolve({ statusCode });
             return;
           }
 
-          reject(new Error(`Slack 응답: ${response.statusCode ?? 0}`));
+          reject(new SlackPostError(`Slack 응답: ${statusCode}`, statusCode));
         });
       },
     );
 
-    request.on("error", reject);
+    request.on("error", (error) => {
+      reject(new SlackPostError(error.message, null));
+    });
     request.write(payload);
     request.end();
   });
@@ -419,6 +498,7 @@ export async function sendSlackNotification(
   webhookUrl: string,
   notices: ParsedNotice[],
   user: UserProfile,
+  runId: string,
   onProgress?: ProgressReporter,
   manualReviewNotices: ManualReviewNotice[] = [],
 ): Promise<void> {
@@ -450,7 +530,39 @@ export async function sendSlackNotification(
       continue;
     }
 
-    await postToSlack(webhookUrl, buildBatchHeader(bucket, bucketNotices.length));
+    const batchHeader = buildBatchHeader(bucket, bucketNotices.length);
+    try {
+      const result = await postToSlack(webhookUrl, batchHeader);
+      tryAppendSlackHistory(
+        createSlackHistoryRecord({
+          runId,
+          panId: null,
+          messageType: "batch_header",
+          applicationStatus: null,
+          payloadText: batchHeader.text,
+          status: "success",
+          httpStatus: result.statusCode,
+          errorMessage: null,
+        }),
+      );
+    } catch (error) {
+      const statusCode = error instanceof SlackPostError ? error.statusCode : null;
+      const message = error instanceof Error ? error.message : String(error);
+      tryAppendSlackHistory(
+        createSlackHistoryRecord({
+          runId,
+          panId: null,
+          messageType: "batch_header",
+          applicationStatus: null,
+          payloadText: batchHeader.text,
+          status: "failed",
+          httpStatus: statusCode,
+          errorMessage: message,
+        }),
+      );
+      throw error;
+    }
+
     if (!onProgress) {
       console.log(`[notifier] ${formatBucketTitle(bucket)} ${bucketNotices.length}건 전송 시작`);
     }
@@ -458,7 +570,38 @@ export async function sendSlackNotification(
     for (const notice of bucketNotices) {
       const checks = buildEligibilityChecks(notice, user);
       const message = formatSlackMessage(notice, checks, user.districts);
-      await postToSlack(webhookUrl, message);
+      try {
+        const result = await postToSlack(webhookUrl, message);
+        tryAppendSlackHistory(
+          createSlackHistoryRecord({
+            runId,
+            panId: notice.panId,
+            messageType: "notice",
+            applicationStatus: normalizeStatus(notice.applicationStatus),
+            payloadText: message.text,
+            status: "success",
+            httpStatus: result.statusCode,
+            errorMessage: null,
+          }),
+        );
+      } catch (error) {
+        const statusCode = error instanceof SlackPostError ? error.statusCode : null;
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        tryAppendSlackHistory(
+          createSlackHistoryRecord({
+            runId,
+            panId: notice.panId,
+            messageType: "notice",
+            applicationStatus: normalizeStatus(notice.applicationStatus),
+            payloadText: message.text,
+            status: "failed",
+            httpStatus: statusCode,
+            errorMessage,
+          }),
+        );
+        throw error;
+      }
+
       if (!onProgress) {
         console.log(`[notifier] 전송 완료: ${notice.title}`);
       }
@@ -468,9 +611,73 @@ export async function sendSlackNotification(
   }
 
   if (manualReviewNotices.length > 0) {
-    await postToSlack(webhookUrl, buildManualReviewHeader(manualReviewNotices.length));
+    const manualReviewHeader = buildManualReviewHeader(manualReviewNotices.length);
+    try {
+      const result = await postToSlack(webhookUrl, manualReviewHeader);
+      tryAppendSlackHistory(
+        createSlackHistoryRecord({
+          runId,
+          panId: null,
+          messageType: "manual_review_header",
+          applicationStatus: null,
+          payloadText: manualReviewHeader.text,
+          status: "success",
+          httpStatus: result.statusCode,
+          errorMessage: null,
+        }),
+      );
+    } catch (error) {
+      const statusCode = error instanceof SlackPostError ? error.statusCode : null;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      tryAppendSlackHistory(
+        createSlackHistoryRecord({
+          runId,
+          panId: null,
+          messageType: "manual_review_header",
+          applicationStatus: null,
+          payloadText: manualReviewHeader.text,
+          status: "failed",
+          httpStatus: statusCode,
+          errorMessage,
+        }),
+      );
+      throw error;
+    }
+
     for (const item of manualReviewNotices) {
-      await postToSlack(webhookUrl, formatManualReviewMessage(item));
+      const message = formatManualReviewMessage(item);
+      try {
+        const result = await postToSlack(webhookUrl, message);
+        tryAppendSlackHistory(
+          createSlackHistoryRecord({
+            runId,
+            panId: item.notice.panId,
+            messageType: "manual_review_notice",
+            applicationStatus: normalizeStatus(item.notice.applicationStatus),
+            payloadText: message.text,
+            status: "success",
+            httpStatus: result.statusCode,
+            errorMessage: null,
+          }),
+        );
+      } catch (error) {
+        const statusCode = error instanceof SlackPostError ? error.statusCode : null;
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        tryAppendSlackHistory(
+          createSlackHistoryRecord({
+            runId,
+            panId: item.notice.panId,
+            messageType: "manual_review_notice",
+            applicationStatus: normalizeStatus(item.notice.applicationStatus),
+            payloadText: message.text,
+            status: "failed",
+            httpStatus: statusCode,
+            errorMessage,
+          }),
+        );
+        throw error;
+      }
+
       current += 1;
       emitProgress(`Slack 전송 ${current}/${total} (수동확인 필요)`);
     }
