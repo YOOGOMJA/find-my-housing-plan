@@ -19,7 +19,7 @@
 3. 제도 설명/자격 안내: 마이홈 포털
    - https://www.myhome.go.kr/hws/portal/cont/selectNHTQualificationView.do
 
-주의: 본 문서의 운영 정의와 법령/공고문이 충돌하면 법령/공고문을 우선 적용한다.
+주의: 본 문서의 운영 정의와 충돌하면 `법령/고시 원문 > 공고문 원문 > 포털 요약` 순으로 우선 적용한다.
 
 ## 2) 왜 이 도메인을 알아야 하나
 
@@ -96,6 +96,17 @@
 - `subscription_region`: 적용 지역(시/도 또는 공급권역)
 - `subscription_account_status`: 정상/해지/휴면 상태
 - `subscription_evidence_date`: 판정 기준일(공고일 기준으로 계산한 일자)
+
+권장 스키마 형식(타입/단위):
+
+- `subscription_type`: `string` (예: `주택청약종합저축`)
+- `subscription_join_date`: `string(date)` (ISO 8601, `YYYY-MM-DD`)
+- `subscription_monthly_payment_count`: `integer` (단위: 회, `>= 0`)
+- `subscription_total_paid_amount`: `integer` (단위: KRW, `>= 0`)
+- `subscription_rank`: `string(enum)` (`1순위`, `2순위`, `미달`, `판정불가`)
+- `subscription_region`: `string` (예: `서울특별시`)
+- `subscription_account_status`: `string(enum)` (`정상`, `해지`, `휴면`, `불명`)
+- `subscription_evidence_date`: `string(date)` (기준일, 보통 공고일)
 
 참고:
 
@@ -242,6 +253,38 @@
 - 무주택 여부/기간
 - 입주자저축(청약통장) 요건
 - 특별공급/우선공급 조건
+
+### 8-4. 사용자 프로필 정보 (직접 수집 항목)
+
+아래 항목은 공공 API에서 안정적으로 일괄 조회하기 어렵기 때문에, 사용자 입력 + 증빙 확인 방식으로 수집하는 것을 기본으로 한다.
+
+- `marital_status` (결혼 여부)
+- `birth_date` (생년월일, 나이 계산용)
+- `current_residence_region` (현재 거주지: 시/도, 시/군/구)
+- `move_in_date` (전입일)
+- `residence_duration` (거주기간, 파생값: `기준일 - 전입일`)
+- `household_member_count` (총 세대원 수)
+- `has_newborn_or_fetus` (신생아/태아 포함 여부)
+- `household_members` (세대원 목록: 관계, 생년월일, 미성년 여부)
+
+근거 포인트:
+
+- 공고는 `공고일 현재` 자격을 요구하는 경우가 많아 기준일 저장이 필수다.
+- 공고별 가점/자격에서 `해당 시·도 연속 거주기간`, `혼인기간`, `자녀(태아 포함)` 조건이 반복적으로 사용된다.
+- 실제 공고 첨부에는 세대구성 확인서/개인정보 동의서 등 개인 프로필 검증 문서가 포함되는 경우가 많다.
+
+출처:
+
+- 마이홈 신혼부부 특별공급(혼인기간, 자녀/태아, 거주기간 가점): https://m.myhome.go.kr/hws/portal/cont/selectNewHomeShareTypeView.do
+- 마이홈 공공임대 자격(무주택세대구성원, 입주자저축, 소득/자산): https://m.myhome.go.kr/hws/portal/cont/selectPubRentalHouseView.do
+- LH 공고 예시(공고일 현재/전입일/직계비속·태아): https://apply.lh.or.kr/lhapply/apply/wt/wrtanc/selectWrtancInfo.do?panId=2015122300018145&ccrCnntSysDsCd=03&uppAisTpCd=13&aisTpCd=26&mi=1026
+- LH 신혼·신생아 전세임대 공고(세대구성 확인서 등 첨부서류): https://apply.lh.or.kr/lhapply/apply/wt/wrtanc/selectWrtancInfo.do?panId=2015122300017959&ccrCnntSysDsCd=03&uppAisTpCd=13&aisTpCd=17&mi=1026
+
+저장 위치 권장:
+
+- 도메인 정의: `docs/domain/` 문서에 유지
+- 실행 데이터: 애플리케이션 DB(프로필/세대원/증빙메타 분리 저장)
+- 주의: `.env`에는 개인 자격정보를 저장하지 않는다(키/설정만 저장)
 
 ## 9) 구현 전에 추가로 알아야 할 것
 
