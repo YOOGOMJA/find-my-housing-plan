@@ -1,5 +1,12 @@
 import { Notice } from "../../entities/notice";
-import { buildClaudePrompt, extractJsonFromText, parseNotices } from ".";
+import {
+  buildClaudePrompt,
+  extractJsonFromText,
+  parseNotices,
+  parseNoHomeYears,
+  parseSubscriptionCount,
+  parseAmountToManwon,
+} from ".";
 
 describe("extractJsonFromText", () => {
   it("마크다운 코드블록 없는 JSON 파싱", () => {
@@ -20,6 +27,42 @@ describe("extractJsonFromText", () => {
 
   it("파싱 불가 시 null 반환", () => {
     expect(extractJsonFromText("이것은 JSON이 아닙니다")).toBeNull();
+  });
+});
+
+describe("buildClaudePrompt 출력에서 신규 필드 파싱", () => {
+  it("무주택 기간 숫자를 파싱한다", () => {
+    const result = parseNoHomeYears("2년 이상");
+    expect(result).toBe(2);
+  });
+
+  it("무주택 기간이 없으면 null", () => {
+    expect(parseNoHomeYears(null)).toBeNull();
+    expect(parseNoHomeYears("")).toBeNull();
+  });
+
+  it("청약통장 납입 횟수를 파싱한다", () => {
+    const result = parseSubscriptionCount("12회 이상 납입");
+    expect(result).toBe(12);
+  });
+
+  it("청약통장 횟수가 없으면 null", () => {
+    expect(parseSubscriptionCount(null)).toBeNull();
+  });
+
+  it("보증금 수치를 파싱한다 (만원 단위)", () => {
+    const result = parseAmountToManwon("8,671,000원");
+    expect(result).toBe(867.1);
+  });
+
+  it("보증금 수치가 만원 표기면 그대로", () => {
+    const result = parseAmountToManwon("8,000만원");
+    expect(result).toBe(8000);
+  });
+
+  it("보증금 수치가 억 표기면 만원으로 변환", () => {
+    const result = parseAmountToManwon("1억 2,000만원");
+    expect(result).toBe(12000);
   });
 });
 
