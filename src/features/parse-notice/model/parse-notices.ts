@@ -1,7 +1,8 @@
 import * as http from "http";
 import * as https from "https";
 import Anthropic from "@anthropic-ai/sdk";
-import { Notice, ParsedConditions, ParsedNotice } from "./types";
+import { Notice, ParsedConditions, ParsedNotice } from "../../../entities/notice";
+import { ProgressReporter } from "../../../shared/types";
 
 type JsonObject = Record<string, unknown>;
 
@@ -235,12 +236,36 @@ async function parseWithClaude(
   };
 }
 
-export async function parseNotices(notices: Notice[], anthropicKey: string): Promise<ParsedNotice[]> {
+export async function parseNotices(
+  notices: Notice[],
+  anthropicKey: string,
+  onProgress?: ProgressReporter,
+): Promise<ParsedNotice[]> {
   const results: ParsedNotice[] = [];
+  const total = notices.length;
+  let current = 0;
+
+  const emitProgress = (message: string): void => {
+    if (!onProgress) {
+      return;
+    }
+
+    const safeTotal = Math.max(total, 1);
+    const safeCurrent = Math.min(Math.max(current, 0), safeTotal);
+    onProgress({
+      phase: "parse",
+      current: safeCurrent,
+      total: safeTotal,
+      percent: Math.floor((safeCurrent / safeTotal) * 100),
+      message,
+    });
+  };
 
   for (const notice of notices) {
     if (!notice.pdfUrl) {
       results.push({ ...notice, conditions: emptyConditions() });
+      current += 1;
+      emitProgress(`공고문 파싱 ${current}/${total} (${notice.title}) - PDF 없음`);
       continue;
     }
 
@@ -249,9 +274,13 @@ export async function parseNotices(notices: Notice[], anthropicKey: string): Pro
       const text = await extractTextFromPdf(buffer);
       const conditions = await parseWithClaude(anthropicKey, text, notice.title);
       results.push({ ...notice, conditions });
+      current += 1;
+      emitProgress(`공고문 파싱 ${current}/${total} (${notice.title})`);
     } catch (error) {
       console.error(`[parser] ${notice.panId} 파싱 실패: ${getErrorMessage(error)}`);
       results.push({ ...notice, conditions: emptyConditions() });
+      current += 1;
+      emitProgress(`공고문 파싱 ${current}/${total} (${notice.title}) - 실패`);
     }
   }
 

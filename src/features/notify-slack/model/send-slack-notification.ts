@@ -1,5 +1,6 @@
 import * as https from "https";
-import { NoticeApplicationStatus, ParsedNotice } from "./types";
+import { NoticeApplicationStatus, ParsedNotice } from "../../../entities/notice";
+import { ProgressReporter } from "../../../shared/types";
 
 export interface SlackMessage {
   text: string;
@@ -355,9 +356,29 @@ function postToSlack(webhookUrl: string, message: SlackMessage): Promise<void> {
 export async function sendSlackNotification(
   webhookUrl: string,
   notices: ParsedNotice[],
+  onProgress?: ProgressReporter,
 ): Promise<void> {
   const grouped = groupNoticesByStatus(notices);
   const order: SlackNoticeBucket[] = ["open", "upcoming", "unknown"];
+  const total = order.reduce((sum, bucket) => sum + grouped[bucket].length, 0);
+  let current = 0;
+
+  const emitProgress = (message: string): void => {
+    if (!onProgress) {
+      return;
+    }
+
+    const safeTotal = Math.max(total, 1);
+    const safeCurrent = Math.min(Math.max(current, 0), safeTotal);
+    onProgress({
+      phase: "notify",
+      current: safeCurrent,
+      total: safeTotal,
+      percent: Math.floor((safeCurrent / safeTotal) * 100),
+      message,
+    });
+  };
+  emitProgress(`Slack 전송 준비 (대상 ${total}건)`);
 
   for (const bucket of order) {
     const bucketNotices = grouped[bucket];
@@ -366,12 +387,18 @@ export async function sendSlackNotification(
     }
 
     await postToSlack(webhookUrl, buildBatchHeader(bucket, bucketNotices.length));
-    console.log(`[notifier] ${formatBucketTitle(bucket)} ${bucketNotices.length}건 전송 시작`);
+    if (!onProgress) {
+      console.log(`[notifier] ${formatBucketTitle(bucket)} ${bucketNotices.length}건 전송 시작`);
+    }
 
     for (const notice of bucketNotices) {
       const message = formatSlackMessage(notice);
       await postToSlack(webhookUrl, message);
-      console.log(`[notifier] 전송 완료: ${notice.title}`);
+      if (!onProgress) {
+        console.log(`[notifier] 전송 완료: ${notice.title}`);
+      }
+      current += 1;
+      emitProgress(`Slack 전송 ${current}/${total} (${formatBucketTitle(bucket)})`);
     }
   }
 }

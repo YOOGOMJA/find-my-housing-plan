@@ -1,4 +1,5 @@
-import { Notice, ParsedNotice, UserProfile } from "./types";
+import { Notice, ParsedNotice } from "../../../entities/notice";
+import { UserProfile } from "../../../entities/user";
 
 const REGION_ALIAS_TO_CODE: Record<string, string> = {
   전국: "00",
@@ -76,7 +77,6 @@ function parseIncomeLimit(text: string): number | null {
       .filter((value) => Number.isFinite(value));
 
     if (values.length > 0) {
-      // 다수 값이 추출되면 가장 보수적인 상한으로 판단
       return Math.min(...values);
     }
   }
@@ -163,7 +163,6 @@ export function matchesHousingPreference(notice: HousingPreferenceNotice, user: 
 export function matchesNoticeEligibility(notice: ParsedNotice, user: UserProfile): boolean {
   const { conditions } = notice;
 
-  // PDF가 있는데 파싱 결과가 비어 있으면 오탐 방지를 위해 제외
   if (notice.pdfUrl && !hasExtractedEligibilityData(notice)) {
     return false;
   }

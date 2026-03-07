@@ -1,174 +1,15 @@
-import * as fs from "fs";
-import * as path from "path";
 import prompts from "prompts";
+import { AREA_PRESET_CHOICES, HOUSING_TYPE_CHOICES, REGION_CHOICES } from "../model/constants";
+import { EnvUpdates, SetupSection } from "../model/types";
+import {
+  calculateManAge,
+  isValidBirthMonthDay,
+  parseNumberInput,
+  throwOnCancel,
+  toCsv,
+} from "../lib/helpers";
 
-type Mode = "profile" | "filter" | "all";
-type EnvUpdates = Record<string, string>;
-type SetupSection = "profile" | "filter";
-
-class PromptCancelledError extends Error {
-  constructor() {
-    super("사용자가 설정을 취소했습니다.");
-    this.name = "PromptCancelledError";
-  }
-}
-
-const ENV_PATH = path.resolve(process.cwd(), ".env");
-const ENV_EXAMPLE_PATH = path.resolve(process.cwd(), ".env.example");
-
-const REGION_CHOICES = [
-  { title: "전국", value: "00" },
-  { title: "서울", value: "11" },
-  { title: "경기", value: "41" },
-  { title: "인천", value: "28" },
-  { title: "부산", value: "26" },
-  { title: "대구", value: "27" },
-  { title: "광주", value: "29" },
-  { title: "대전", value: "30" },
-  { title: "울산", value: "31" },
-  { title: "세종", value: "36" },
-  { title: "강원", value: "42" },
-  { title: "충북", value: "43" },
-  { title: "충남", value: "44" },
-  { title: "전북", value: "45" },
-  { title: "전남", value: "46" },
-  { title: "경북", value: "47" },
-  { title: "경남", value: "48" },
-  { title: "제주", value: "50" },
-];
-
-const HOUSING_TYPE_CHOICES = [
-  { title: "임대주택 (06)", value: "06" },
-  { title: "매입/전세임대 (13)", value: "13" },
-  { title: "공공분양 (05)", value: "05" },
-  { title: "토지/분양 (01)", value: "01" },
-  { title: "상가/업무시설 (22)", value: "22" },
-];
-
-const AREA_PRESET_CHOICES = [
-  { title: "소형 39㎡ (약 16평형)", value: 39 },
-  { title: "소형 49㎡ (약 20평형)", value: 49 },
-  { title: "국민평형 59㎡ (약 24평형)", value: 59 },
-  { title: "중형 74㎡ (약 30평형)", value: 74 },
-  { title: "중형 84㎡ (약 34평형)", value: 84 },
-];
-
-function loadCurrentEnvMap(): Record<string, string> {
-  const sourcePath = fs.existsSync(ENV_PATH) ? ENV_PATH : ENV_EXAMPLE_PATH;
-  if (!fs.existsSync(sourcePath)) {
-    return {};
-  }
-
-  const content = fs.readFileSync(sourcePath, "utf-8");
-  const map: Record<string, string> = {};
-
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) {
-      continue;
-    }
-
-    const separator = line.indexOf("=");
-    if (separator <= 0) {
-      continue;
-    }
-
-    const key = line.slice(0, separator).trim();
-    const value = line.slice(separator + 1).trim();
-    map[key] = value;
-  }
-
-  return map;
-}
-
-function readEnvTemplate(): string {
-  if (fs.existsSync(ENV_PATH)) {
-    return fs.readFileSync(ENV_PATH, "utf-8");
-  }
-  if (fs.existsSync(ENV_EXAMPLE_PATH)) {
-    return fs.readFileSync(ENV_EXAMPLE_PATH, "utf-8");
-  }
-  return "";
-}
-
-function renderEnvContent(baseContent: string, updates: EnvUpdates): string {
-  const lines = baseContent.length > 0 ? baseContent.split(/\r?\n/) : [];
-  const used = new Set<string>();
-  const output: string[] = [];
-
-  for (const line of lines) {
-    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
-    if (!match) {
-      output.push(line);
-      continue;
-    }
-
-    const key = match[1];
-    if (!(key in updates)) {
-      output.push(line);
-      continue;
-    }
-
-    output.push(`${key}=${updates[key]}`);
-    used.add(key);
-  }
-
-  const missing = Object.keys(updates).filter((key) => !used.has(key));
-  if (missing.length > 0) {
-    if (output.length > 0 && output[output.length - 1].trim() !== "") {
-      output.push("");
-    }
-    output.push("# Added by env setup CLI");
-    for (const key of missing) {
-      output.push(`${key}=${updates[key]}`);
-    }
-  }
-
-  return `${output.join("\n").replace(/\n+$/, "\n")}`;
-}
-
-function writeEnv(updates: EnvUpdates): void {
-  const merged: EnvUpdates = { ...loadCurrentEnvMap(), ...updates };
-  const baseContent = readEnvTemplate();
-  const rendered = renderEnvContent(baseContent, merged);
-  fs.writeFileSync(ENV_PATH, rendered, "utf-8");
-}
-
-function toCsv(items: string[]): string {
-  return [...new Set(items.map((item) => item.trim()).filter(Boolean))].join(",");
-}
-
-function parseNumberInput(value: unknown, fallback: number): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return fallback;
-  }
-  return value;
-}
-
-function parseModeFromArg(): Mode | null {
-  const raw = (process.argv[2] ?? "").toLowerCase().trim();
-  if (raw === "profile" || raw === "filter" || raw === "all") {
-    return raw;
-  }
-  return null;
-}
-
-function throwOnCancel(): never {
-  throw new PromptCancelledError();
-}
-
-function parseSectionsFromArg(): SetupSection[] | null {
-  const mode = parseModeFromArg();
-  if (!mode) {
-    return null;
-  }
-  if (mode === "all") {
-    return ["profile", "filter"];
-  }
-  return [mode];
-}
-
-async function askSections(): Promise<SetupSection[]> {
+export async function askSections(): Promise<SetupSection[]> {
   const response = await prompts(
     {
       type: "multiselect",
@@ -187,39 +28,13 @@ async function askSections(): Promise<SetupSection[]> {
 
   const sections = Array.isArray(response.sections) ? (response.sections as SetupSection[]) : [];
   if (sections.length === 0) {
-    throw new PromptCancelledError();
+    throwOnCancel();
   }
 
   return sections;
 }
 
-function isValidBirthMonthDay(monthDay: string): boolean {
-  const match = monthDay.match(/^(\d{2})-(\d{2})$/);
-  if (!match) {
-    return false;
-  }
-
-  const month = Number.parseInt(match[1], 10);
-  const day = Number.parseInt(match[2], 10);
-  const probe = new Date(2000, month - 1, day);
-
-  return probe.getFullYear() === 2000 && probe.getMonth() === month - 1 && probe.getDate() === day;
-}
-
-function calculateManAge(birthYear: number, birthMonthDay: string, today = new Date()): number {
-  const [birthMonthText, birthDayText] = birthMonthDay.split("-");
-  const birthMonth = Number.parseInt(birthMonthText, 10);
-  const birthDay = Number.parseInt(birthDayText, 10);
-
-  let age = today.getFullYear() - birthYear;
-  if (today.getMonth() + 1 < birthMonth || (today.getMonth() + 1 === birthMonth && today.getDate() < birthDay)) {
-    age -= 1;
-  }
-
-  return Math.max(age, 0);
-}
-
-async function promptProfile(env: Record<string, string>): Promise<EnvUpdates> {
+export async function promptProfile(env: Record<string, string>): Promise<EnvUpdates> {
   const currentYear = new Date().getFullYear();
   const ageFallback = Number.parseInt(env.USER_AGE ?? "35", 10);
 
@@ -284,10 +99,7 @@ async function promptProfile(env: Record<string, string>): Promise<EnvUpdates> {
         name: "currentRegion",
         message: "현재 거주지 코드 (USER_CURRENT_REGION)",
         choices: REGION_CHOICES,
-        initial: Math.max(
-          0,
-          REGION_CHOICES.findIndex((choice) => choice.value === (env.USER_CURRENT_REGION ?? "11")),
-        ),
+        initial: Math.max(0, REGION_CHOICES.findIndex((choice) => choice.value === (env.USER_CURRENT_REGION ?? "11"))),
       },
       {
         type: "number",
@@ -359,7 +171,7 @@ async function promptProfile(env: Record<string, string>): Promise<EnvUpdates> {
   };
 }
 
-async function promptFilter(env: Record<string, string>): Promise<EnvUpdates> {
+export async function promptFilter(env: Record<string, string>): Promise<EnvUpdates> {
   const regionResponse = await prompts(
     [
       {
@@ -482,39 +294,3 @@ async function promptFilter(env: Record<string, string>): Promise<EnvUpdates> {
     USER_MIN_BUILD_YEAR: String(parseNumberInput(detail.minBuildYear, Number.parseInt(env.USER_MIN_BUILD_YEAR ?? "0", 10))),
   };
 }
-
-async function main(): Promise<void> {
-  const chalk = (await import("chalk")).default;
-  const env = loadCurrentEnvMap();
-
-  const sections = parseSectionsFromArg() ?? (await askSections());
-  const updates: EnvUpdates = {};
-
-  if (sections.includes("profile")) {
-    console.log(chalk.cyan("\n[1] 기본 자격 설정"));
-    Object.assign(updates, await promptProfile(env));
-  }
-
-  if (sections.includes("filter")) {
-    const sectionIndex = sections.includes("profile") ? 2 : 1;
-    console.log(chalk.cyan(`\n[${sectionIndex}] 필터 설정`));
-    Object.assign(updates, await promptFilter({ ...env, ...updates }));
-  }
-
-  writeEnv(updates);
-
-  console.log(chalk.green("\n.env 저장 완료"));
-  console.log(chalk.gray(`- 파일: ${ENV_PATH}`));
-  console.log(chalk.gray(`- 반영 키 수: ${Object.keys(updates).length}`));
-}
-
-main().catch((error: unknown) => {
-  if (error instanceof PromptCancelledError) {
-    console.log("[env-setup] 설정이 취소되어 변경사항을 저장하지 않았습니다.");
-    process.exit(0);
-  }
-
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(`[env-setup] 오류: ${message}`);
-  process.exit(1);
-});

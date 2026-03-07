@@ -1,6 +1,7 @@
 import * as https from "https";
-import { Notice, NoticeApplicationStatus, SupplyItem } from "./types";
-import { toProcessedKey } from "./state";
+import { Notice, NoticeApplicationStatus, SupplyItem } from "../../../entities/notice";
+import { ProgressReporter } from "../../../shared/types";
+import { toProcessedKey } from "../../notice-state";
 
 const LIST_URL = "https://apis.data.go.kr/B552555/lhLeaseNoticeInfo1/lhLeaseNoticeInfo1";
 const DETAIL_URL = "https://apis.data.go.kr/B552555/lhLeaseNoticeDtlInfo1/getLeaseNoticeDtlInfo1";
@@ -15,6 +16,28 @@ interface NoticeDetailInfo {
   applicationStartDate: string | null;
   applicationEndDate: string | null;
   applicationStatus: NoticeApplicationStatus;
+}
+
+function emitCollectProgress(
+  onProgress: ProgressReporter | undefined,
+  current: number,
+  total: number,
+  message: string,
+): void {
+  if (!onProgress) {
+    return;
+  }
+
+  const safeTotal = Math.max(total, 1);
+  const safeCurrent = Math.min(Math.max(current, 0), safeTotal);
+
+  onProgress({
+    phase: "collect",
+    current: safeCurrent,
+    total: safeTotal,
+    percent: Math.floor((safeCurrent / safeTotal) * 100),
+    message,
+  });
 }
 
 function isJsonObject(value: unknown): value is JsonObject {
@@ -235,7 +258,7 @@ function buildDetailParams(item: Record<string, unknown>, panId: string): Record
   };
 }
 
-async function fetchNoticeList(apiKey: string): Promise<Record<string, unknown>[]> {
+async function fetchNoticeList(apiKey: string, onProgress?: ProgressReporter): Promise<Record<string, unknown>[]> {
   const today = new Date();
   const lookback = new Date(today);
   lookback.setMonth(lookback.getMonth() - 6);
@@ -256,6 +279,7 @@ async function fetchNoticeList(apiKey: string): Promise<Record<string, unknown>[
 
     const { body } = await get(url);
     const items = extractItems(body);
+    emitCollectProgress(onProgress, page, MAX_PAGE, `목록 페이지 조회 ${page}/${MAX_PAGE}`);
     if (items.length === 0) {
       break;
     }
@@ -377,9 +401,19 @@ async function fetchSupplyInfo(apiKey: string, item: Record<string, unknown>, pa
   }));
 }
 
-export async function collectNotices(apiKey: string, processedKeys: Set<string>): Promise<Notice[]> {
-  const rawItems = await fetchNoticeList(apiKey);
+export async function collectNotices(
+  apiKey: string,
+  processedKeys: Set<string>,
+  onProgress?: ProgressReporter,
+): Promise<Notice[]> {
+  const rawItems = await fetchNoticeList(apiKey, onProgress);
   const notices: Notice[] = [];
+  const total = rawItems.length;
+  let skippedByProcessed = 0;
+  let skippedByClosed = 0;
+  let examined = 0;
+
+  emitCollectProgress(onProgress, 0, Math.max(total, 1), `상세 조회 준비 (대상 ${total}건)`);
 
   for (const item of rawItems) {
     const panId = parsePanId(item);
@@ -389,10 +423,26 @@ export async function collectNotices(apiKey: string, processedKeys: Set<string>)
 
     const detail = await fetchDetailInfo(apiKey, item, panId);
     if (!shouldCollectByProcessed(processedKeys, panId, detail.applicationStatus)) {
+      skippedByProcessed += 1;
+      examined += 1;
+      emitCollectProgress(
+        onProgress,
+        examined,
+        Math.max(total, 1),
+        `상세/공급 조회 ${examined}/${total} (기처리 제외 ${skippedByProcessed})`,
+      );
       continue;
     }
 
     if (detail.applicationStatus === "closed") {
+      skippedByClosed += 1;
+      examined += 1;
+      emitCollectProgress(
+        onProgress,
+        examined,
+        Math.max(total, 1),
+        `상세/공급 조회 ${examined}/${total} (마감 제외 ${skippedByClosed})`,
+      );
       continue;
     }
 
@@ -413,7 +463,21 @@ export async function collectNotices(apiKey: string, processedKeys: Set<string>)
       pdfUrl: detail.pdfUrl,
       supplyInfo,
     });
+    examined += 1;
+    emitCollectProgress(
+      onProgress,
+      examined,
+      Math.max(total, 1),
+      `상세/공급 조회 ${examined}/${total} (수집 ${notices.length}건)`,
+    );
   }
+
+  emitCollectProgress(
+    onProgress,
+    Math.max(total, 1),
+    Math.max(total, 1),
+    `수집 완료: 대상 ${total}건, 수집 ${notices.length}건, 기처리 제외 ${skippedByProcessed}건, 마감 제외 ${skippedByClosed}건`,
+  );
 
   return notices;
 }

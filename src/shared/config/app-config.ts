@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import { UserProfile } from "./types";
+import { UserProfile } from "../../entities/user";
 
 export interface AppConfig {
   apiKey: string;

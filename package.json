@@ -9,10 +9,10 @@
   "scripts": {
     "start": "ts-node src/index.ts",
     "test": "jest",
-    "env:setup": "ts-node src/env-setup-cli.ts",
-    "env:setup:profile": "ts-node src/env-setup-cli.ts profile",
-    "env:setup:filter": "ts-node src/env-setup-cli.ts filter",
-    "env:setup:all": "ts-node src/env-setup-cli.ts all"
+    "env:setup": "ts-node src/app/env-setup/cli.ts",
+    "env:setup:profile": "ts-node src/app/env-setup/cli.ts profile",
+    "env:setup:filter": "ts-node src/app/env-setup/cli.ts filter",
+    "env:setup:all": "ts-node src/app/env-setup/cli.ts all"
   },
   "repository": {
     "type": "git",

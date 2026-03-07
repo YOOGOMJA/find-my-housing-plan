@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import { Notice, NoticeApplicationStatus, ParsedNotice } from "./types";
+import { Notice, NoticeApplicationStatus, ParsedNotice } from "../../../entities/notice";
 
 export interface ProcessedRecord {
   panId: string;
