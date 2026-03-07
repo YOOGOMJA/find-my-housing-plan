@@ -278,6 +278,18 @@ export function buildEligibilityChecks(notice: ParsedNotice, user: UserProfile):
     });
   }
 
+  // 자동차 자산 판정
+  if (notice.conditions.carAssetLimit) {
+    const limit = parseAssetLimit(notice.conditions.carAssetLimit);
+    const result: EligibilityResult = limit === null ? "unknown" : user.carAsset <= limit ? "pass" : "fail";
+    checks.push({
+      label: "자동차",
+      result,
+      rawCondition: notice.conditions.carAssetLimit,
+      userValue: `${user.carAsset}만원`,
+    });
+  }
+
   return checks;
 }
 
