@@ -26,6 +26,10 @@ const notice: ParsedNotice = {
     rent: { "26": "145,630원", "37": "204,560원" },
     target: null,
     notes: "최장 30년 거주 가능",
+    depositAmount: { "26": 867.1, "37": 1623.1 },
+    rentAmount: { "26": 14.563, "37": 20.456 },
+    noHomeYearsRequired: null,
+    subscriptionCountRequired: null,
   },
 };
 

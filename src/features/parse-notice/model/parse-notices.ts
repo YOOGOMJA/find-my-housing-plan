@@ -170,6 +170,10 @@ function emptyConditions(): ParsedConditions {
     rent: {},
     target: null,
     notes: null,
+    depositAmount: {},
+    rentAmount: {},
+    noHomeYearsRequired: null,
+    subscriptionCountRequired: null,
   };
 }
 
@@ -228,16 +232,23 @@ async function parseWithClaude(
     return emptyConditions();
   }
 
+  const depositMap = toStringRecord(parsed["임대보증금"]);
+  const rentMap = toStringRecord(parsed["월임대료"]);
+
   return {
     incomeLimit: optionalString(parsed["소득기준"]),
     assetLimit: optionalString(parsed["자산기준"]),
     carAssetLimit: optionalString(parsed["자동차기준"]),
     noHomeCondition: optionalString(parsed["무주택조건"]),
     subscriptionCondition: optionalString(parsed["청약통장조건"]),
-    deposit: toStringRecord(parsed["임대보증금"]),
-    rent: toStringRecord(parsed["월임대료"]),
+    deposit: depositMap,
+    rent: rentMap,
     target: optionalString(parsed["신청대상"]),
     notes: optionalString(parsed["기타특이사항"]),
+    depositAmount: {},
+    rentAmount: {},
+    noHomeYearsRequired: null,
+    subscriptionCountRequired: null,
   };
 }
 

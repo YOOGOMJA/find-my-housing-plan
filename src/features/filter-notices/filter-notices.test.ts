@@ -19,6 +19,10 @@ const baseUser: UserProfile = {
   maxArea: 60,
   minBuildYear: 0,
   housingTypes: ["06"],
+  districts: [],
+  maxDeposit: 0,
+  maxRent: 0,
+  applicantGroup: null,
 };
 
 const baseNotice: ParsedNotice = {
@@ -39,6 +43,10 @@ const baseNotice: ParsedNotice = {
     rent: { "26": "145,630원" },
     target: null,
     notes: null,
+    depositAmount: { "26": 867 },
+    rentAmount: { "26": 14 },
+    noHomeYearsRequired: null,
+    subscriptionCountRequired: null,
   },
 };
 
@@ -126,6 +134,10 @@ describe("matchesNoticeEligibility", () => {
         rent: {},
         target: null,
         notes: null,
+        depositAmount: {},
+        rentAmount: {},
+        noHomeYearsRequired: null,
+        subscriptionCountRequired: null,
       },
     };
 
