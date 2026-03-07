@@ -1,4 +1,4 @@
-import { NoticeApplicationStatus } from "../entities/notice";
+import { Notice, NoticeApplicationStatus } from "../entities/notice";
 import { collectNotices } from "../features/collect-notices";
 import { filterNotices, matchesHousingPreference } from "../features/filter-notices";
 import {
@@ -21,6 +21,19 @@ function normalizeApplicationStatus(value: string | undefined): NoticeApplicatio
   }
 
   return "unknown";
+}
+
+export function selectProcessedNotices(
+  notices: Notice[],
+  candidates: Notice[],
+  failedPanIds: Set<string>,
+): Notice[] {
+  if (failedPanIds.size === 0) {
+    return notices;
+  }
+
+  const candidatePanIds = new Set(candidates.map((notice) => notice.panId));
+  return notices.filter((notice) => !candidatePanIds.has(notice.panId) || !failedPanIds.has(notice.panId));
 }
 
 export async function runMain(): Promise<void> {
@@ -58,7 +71,7 @@ export async function runMain(): Promise<void> {
   }
 
   console.log("[3/5] 공고문 파싱 중...");
-  const parsed = await parseNotices(candidates, config.anthropicKey, progress.report);
+  const { parsed, failedPanIds } = await parseNotices(candidates, config.anthropicKey, progress.report);
   progress.flush();
 
   console.log("[4/5] 조건 필터링 중...");
@@ -82,13 +95,18 @@ export async function runMain(): Promise<void> {
 
   if (matched.length > 0) {
     console.log("[5/5] Slack 알림 전송 중...");
-    await sendSlackNotification(config.slackWebhookUrl, matched, progress.report);
+    await sendSlackNotification(config.slackWebhookUrl, matched, config.user, progress.report);
     progress.flush();
     markNotifiedNotices(notifiedState, matched, runId);
     saveNotifiedState(notifiedState);
   }
 
-  markProcessedNotices(processedState, notices);
+  const failedPanIdSet = new Set(failedPanIds);
+  const processedTargets = selectProcessedNotices(notices, candidates, failedPanIdSet);
+  if (failedPanIdSet.size > 0) {
+    console.warn(`[경고] 파싱 실패 ${failedPanIdSet.size}건은 processed 상태로 기록하지 않습니다.`);
+  }
+  markProcessedNotices(processedState, processedTargets);
   saveProcessedState(processedState);
 
   progress.complete();

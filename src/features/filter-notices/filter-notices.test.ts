@@ -1,4 +1,4 @@
-import { filterNotices, matchesHousingPreference, matchesNoticeEligibility } from ".";
+import { filterNotices, matchesHousingPreference, matchesNoticeEligibility, matchesDistrict, matchesPrice, buildEligibilityChecks } from ".";
 import { ParsedNotice } from "../../entities/notice";
 import { UserProfile } from "../../entities/user";
 
@@ -19,6 +19,10 @@ const baseUser: UserProfile = {
   maxArea: 60,
   minBuildYear: 0,
   housingTypes: ["06"],
+  districts: [],
+  maxDeposit: 0,
+  maxRent: 0,
+  applicantGroup: null,
 };
 
 const baseNotice: ParsedNotice = {
@@ -39,6 +43,10 @@ const baseNotice: ParsedNotice = {
     rent: { "26": "145,630원" },
     target: null,
     notes: null,
+    depositAmount: { "26": 867 },
+    rentAmount: { "26": 14 },
+    noHomeYearsRequired: null,
+    subscriptionCountRequired: null,
   },
 };
 
@@ -126,6 +134,10 @@ describe("matchesNoticeEligibility", () => {
         rent: {},
         target: null,
         notes: null,
+        depositAmount: {},
+        rentAmount: {},
+        noHomeYearsRequired: null,
+        subscriptionCountRequired: null,
       },
     };
 
@@ -150,5 +162,89 @@ describe("filterNotices", () => {
 
     expect(result).toHaveLength(1);
     expect(result[0].panId).toBe("TEST-001");
+  });
+});
+
+describe("구 단위 소프트 필터 (matchesDistrict)", () => {
+  it("districts가 비어있으면 항상 true", () => {
+    const notice = { ...baseNotice, supplyInfo: [{ ...baseNotice.supplyInfo[0], address: "서울시 강남구 역삼동 1" }] };
+    expect(matchesDistrict(notice, { ...baseUser, districts: [] })).toBe(true);
+  });
+
+  it("공급 단지 주소에 선호 구가 포함되면 true", () => {
+    const notice = { ...baseNotice, supplyInfo: [{ ...baseNotice.supplyInfo[0], address: "서울시 송파구 잠실동 1" }] };
+    expect(matchesDistrict(notice, { ...baseUser, districts: ["송파구"] })).toBe(true);
+  });
+
+  it("공급 단지 주소에 선호 구가 없으면 false", () => {
+    const notice = { ...baseNotice, supplyInfo: [{ ...baseNotice.supplyInfo[0], address: "서울시 강남구 역삼동 1" }] };
+    expect(matchesDistrict(notice, { ...baseUser, districts: ["송파구"] })).toBe(false);
+  });
+
+  it("주소 정보가 없으면 true (알 수 없음)", () => {
+    const notice = { ...baseNotice, supplyInfo: [{ ...baseNotice.supplyInfo[0], address: null }] };
+    expect(matchesDistrict(notice, { ...baseUser, districts: ["송파구"] })).toBe(true);
+  });
+});
+
+describe("가격 하드 필터 (matchesPrice)", () => {
+  it("maxDeposit가 0이면 보증금 필터 안 함", () => {
+    const notice = { ...baseNotice, conditions: { ...baseNotice.conditions, depositAmount: { "26": 20000 } } };
+    expect(matchesPrice(notice, { ...baseUser, maxDeposit: 0 })).toBe(true);
+  });
+
+  it("보증금이 maxDeposit 이하면 true", () => {
+    const notice = { ...baseNotice, conditions: { ...baseNotice.conditions, depositAmount: { "26": 8000 } } };
+    expect(matchesPrice(notice, { ...baseUser, maxDeposit: 10000 })).toBe(true);
+  });
+
+  it("보증금이 maxDeposit 초과면 false", () => {
+    const notice = { ...baseNotice, conditions: { ...baseNotice.conditions, depositAmount: { "26": 12000 } } };
+    expect(matchesPrice(notice, { ...baseUser, maxDeposit: 10000 })).toBe(false);
+  });
+
+  it("여러 공급 유형 중 하나라도 범위 내면 true", () => {
+    const notice = {
+      ...baseNotice,
+      conditions: { ...baseNotice.conditions, depositAmount: { "26": 12000, "36": 8000 } },
+    };
+    expect(matchesPrice(notice, { ...baseUser, maxDeposit: 10000 })).toBe(true);
+  });
+});
+
+describe("자격 판정 (buildEligibilityChecks)", () => {
+  it("소득 통과 케이스", () => {
+    const notice = { ...baseNotice, conditions: { ...baseNotice.conditions, incomeLimit: "월평균소득 70% 이하 (250만원)" } };
+    const checks = buildEligibilityChecks(notice, { ...baseUser, income: 200 });
+    const income = checks.find((c) => c.label === "소득");
+    expect(income?.result).toBe("pass");
+  });
+
+  it("소득 초과 케이스", () => {
+    const notice = { ...baseNotice, conditions: { ...baseNotice.conditions, incomeLimit: "200만원 이하" } };
+    const checks = buildEligibilityChecks(notice, { ...baseUser, income: 300 });
+    const income = checks.find((c) => c.label === "소득");
+    expect(income?.result).toBe("fail");
+  });
+
+  it("무주택 기간 미달 케이스", () => {
+    const notice = { ...baseNotice, conditions: { ...baseNotice.conditions, noHomeYearsRequired: 3 } };
+    const checks = buildEligibilityChecks(notice, { ...baseUser, noHomeYears: 1 });
+    const noHome = checks.find((c) => c.label === "무주택");
+    expect(noHome?.result).toBe("fail");
+  });
+
+  it("무주택 기간 정보 없으면 unknown", () => {
+    const notice = { ...baseNotice, conditions: { ...baseNotice.conditions, noHomeYearsRequired: null } };
+    const checks = buildEligibilityChecks(notice, baseUser);
+    const noHome = checks.find((c) => c.label === "무주택");
+    expect(noHome?.result).toBe("unknown");
+  });
+
+  it("청약통장 횟수 통과 케이스", () => {
+    const notice = { ...baseNotice, conditions: { ...baseNotice.conditions, subscriptionCountRequired: 12 } };
+    const checks = buildEligibilityChecks(notice, { ...baseUser, subscriptionCount: 24 });
+    const sub = checks.find((c) => c.label === "청약통장");
+    expect(sub?.result).toBe("pass");
   });
 });

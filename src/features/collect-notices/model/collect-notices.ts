@@ -44,6 +44,26 @@ function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function summarizeBody(body: unknown): string {
+  if (typeof body === "string") {
+    return body.slice(0, 200);
+  }
+
+  try {
+    return JSON.stringify(body).slice(0, 200);
+  } catch {
+    return String(body).slice(0, 200);
+  }
+}
+
+export function assertSuccessStatus(status: number, url: string, body: unknown): void {
+  if (status >= 200 && status < 300) {
+    return;
+  }
+
+  throw new Error(`[collector] API 호출 실패: status=${status}, url=${url}, body=${summarizeBody(body)}`);
+}
+
 function get(url: string): Promise<{ status: number; body: unknown }> {
   return new Promise((resolve, reject) => {
     https
@@ -277,7 +297,8 @@ async function fetchNoticeList(apiKey: string, onProgress?: ProgressReporter): P
       CLSG_DT: endDate,
     });
 
-    const { body } = await get(url);
+    const { status, body } = await get(url);
+    assertSuccessStatus(status, url, body);
     const items = extractItems(body);
     emitCollectProgress(onProgress, page, MAX_PAGE, `목록 페이지 조회 ${page}/${MAX_PAGE}`);
     if (items.length === 0) {
@@ -310,7 +331,8 @@ async function fetchDetailInfo(
 ): Promise<NoticeDetailInfo> {
   const listPhase = inferListStatusPhase(toString(item.PAN_SS));
   const url = buildApiUrl(DETAIL_URL, apiKey, buildDetailParams(item, panId));
-  const { body } = await get(url);
+  const { status, body } = await get(url);
+  assertSuccessStatus(status, url, body);
 
   if (!Array.isArray(body)) {
     return {
@@ -391,7 +413,8 @@ async function fetchDetailInfo(
 
 async function fetchSupplyInfo(apiKey: string, item: Record<string, unknown>, panId: string): Promise<SupplyItem[]> {
   const url = buildApiUrl(SUPPLY_URL, apiKey, buildDetailParams(item, panId));
-  const { body } = await get(url);
+  const { status, body } = await get(url);
+  assertSuccessStatus(status, url, body);
   const items = extractItems(body);
 
   return items.map((supply) => ({

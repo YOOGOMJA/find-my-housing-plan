@@ -92,6 +92,10 @@ export function loadConfig(): AppConfig {
     maxArea: parseFloatValue(optionalEnv("USER_MAX_AREA", "999"), "USER_MAX_AREA"),
     minBuildYear: parseIntValue(optionalEnv("USER_MIN_BUILD_YEAR", "0"), "USER_MIN_BUILD_YEAR"),
     housingTypes: splitCsv(optionalEnv("USER_HOUSING_TYPES", "")),
+    districts: splitCsv(optionalEnv("USER_DISTRICTS", "")),
+    maxDeposit: parseFloatValue(optionalEnv("USER_MAX_DEPOSIT", "0"), "USER_MAX_DEPOSIT"),
+    maxRent: parseFloatValue(optionalEnv("USER_MAX_RENT", "0"), "USER_MAX_RENT"),
+    applicantGroup: parseApplicantGroup(optionalEnv("USER_APPLICANT_GROUP", "general")),
   };
 
   return {
@@ -111,4 +115,11 @@ function splitCsv(value: string): string[] {
 
 function isValidMaritalStatus(value: string): value is UserProfile["maritalStatus"] {
   return value === "single" || value === "married" || value === "newlywed";
+}
+
+function parseApplicantGroup(value: string): UserProfile["applicantGroup"] {
+  const valid = ["general", "youth", "newlywed", "newborn", "multiChild"] as const;
+  return (valid as readonly string[]).includes(value)
+    ? (value as UserProfile["applicantGroup"])
+    : null;
 }

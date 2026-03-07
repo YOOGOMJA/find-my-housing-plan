@@ -1,1 +1,1 @@
-export * from "./model/filter-notices";
+export { filterNotices, matchesHousingPreference, matchesNoticeEligibility, matchesDistrict, matchesPrice, buildEligibilityChecks } from "./model/filter-notices";

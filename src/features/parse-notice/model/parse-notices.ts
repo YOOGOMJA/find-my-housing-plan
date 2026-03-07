@@ -30,6 +30,11 @@ interface PdfjsModule {
 
 let pdfjsLib: PdfjsModule | null = null;
 
+export interface ParseNoticesResult {
+  parsed: ParsedNotice[];
+  failedPanIds: string[];
+}
+
 function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -115,6 +120,51 @@ async function extractTextFromPdf(buffer: Buffer): Promise<string> {
   return text;
 }
 
+export function parseNoHomeYears(text: string | null | undefined): number | null {
+  if (!text) return null;
+  const match = text.match(/(\d+(?:\.\d+)?)\s*년/);
+  if (!match) return null;
+  const value = parseFloat(match[1]);
+  return isFinite(value) ? value : null;
+}
+
+export function parseSubscriptionCount(text: string | null | undefined): number | null {
+  if (!text) return null;
+  const match = text.match(/(\d+)\s*회/);
+  if (!match) return null;
+  const value = parseInt(match[1], 10);
+  return isFinite(value) ? value : null;
+}
+
+export function parseAmountToManwon(text: string | null | undefined): number | null {
+  if (!text) return null;
+  let total = 0;
+  let matched = false;
+
+  const eokMatch = text.match(/([\d,]+(?:\.\d+)?)\s*억/);
+  if (eokMatch) {
+    const eok = parseFloat(eokMatch[1].replace(/,/g, ""));
+    if (isFinite(eok)) { total += eok * 10000; matched = true; }
+  }
+
+  const manMatch = text.match(/([\d,]+(?:\.\d+)?)\s*만\s*원/);
+  if (manMatch) {
+    const man = parseFloat(manMatch[1].replace(/,/g, ""));
+    if (isFinite(man)) { total += man; matched = true; }
+  }
+
+  if (!matched) {
+    // "8,671,000원" 형태 (원 단위) → 만원으로 변환
+    const wonMatch = text.match(/([\d,]+)\s*원/);
+    if (wonMatch) {
+      const won = parseFloat(wonMatch[1].replace(/,/g, ""));
+      if (isFinite(won)) { return won / 10000; }
+    }
+  }
+
+  return matched ? total : null;
+}
+
 export function buildClaudePrompt(noticeTitle: string, text: string): string {
   return `다음은 LH 공공임대주택 공고문 텍스트입니다. 아래 항목을 JSON으로 추출해줘. 명시되지 않은 항목은 null로 해줘.
 
@@ -131,9 +181,11 @@ ${text.slice(0, 6000)}
   "자산기준": "예: 총자산 3.61억 이하",
   "자동차기준": "예: 자동차 3,683만원 이하",
   "무주택조건": "예: 무주택세대구성원",
-  "청약통장조건": "납입 횟수 또는 금액 조건",
+  "무주택기간": "예: 2년 이상 (숫자+년 형태로)",
+  "청약통장조건": "예: 12회 이상 납입 (횟수 포함)",
   "임대보증금": {"26형": "금액"},
   "월임대료": {"26형": "금액"},
+  "단지주소목록": ["서울시 송파구 잠실동 123-4"],
   "기타특이사항": "중요한 내용 요약"
 }
 
@@ -165,6 +217,10 @@ function emptyConditions(): ParsedConditions {
     rent: {},
     target: null,
     notes: null,
+    depositAmount: {},
+    rentAmount: {},
+    noHomeYearsRequired: null,
+    subscriptionCountRequired: null,
   };
 }
 
@@ -209,7 +265,7 @@ async function parseWithClaude(
   anthropicKey: string,
   text: string,
   title: string,
-): Promise<ParsedConditions> {
+): Promise<{ conditions: ParsedConditions; addressList: string[] }> {
   const client = new Anthropic({ apiKey: anthropicKey });
   const response = await client.messages.create({
     model: "claude-haiku-4-5-20251001",
@@ -220,19 +276,45 @@ async function parseWithClaude(
   const raw = extractMessageText(response.content);
   const parsed = extractJsonFromText(raw);
   if (!parsed) {
-    return emptyConditions();
+    return { conditions: emptyConditions(), addressList: [] };
   }
 
+  const depositMap = toStringRecord(parsed["임대보증금"]);
+  const rentMap = toStringRecord(parsed["월임대료"]);
+
+  const depositAmountMap: Record<string, number | null> = {};
+  for (const [key, val] of Object.entries(depositMap)) {
+    depositAmountMap[key] = parseAmountToManwon(val);
+  }
+
+  const rentAmountMap: Record<string, number | null> = {};
+  for (const [key, val] of Object.entries(rentMap)) {
+    rentAmountMap[key] = parseAmountToManwon(val);
+  }
+
+  const addressList = Array.isArray(parsed["단지주소목록"])
+    ? (parsed["단지주소목록"] as unknown[]).filter((v): v is string => typeof v === "string")
+    : [];
+
+  const subscriptionCondition = optionalString(parsed["청약통장조건"]);
+
   return {
-    incomeLimit: optionalString(parsed["소득기준"]),
-    assetLimit: optionalString(parsed["자산기준"]),
-    carAssetLimit: optionalString(parsed["자동차기준"]),
-    noHomeCondition: optionalString(parsed["무주택조건"]),
-    subscriptionCondition: optionalString(parsed["청약통장조건"]),
-    deposit: toStringRecord(parsed["임대보증금"]),
-    rent: toStringRecord(parsed["월임대료"]),
-    target: optionalString(parsed["신청대상"]),
-    notes: optionalString(parsed["기타특이사항"]),
+    conditions: {
+      incomeLimit: optionalString(parsed["소득기준"]),
+      assetLimit: optionalString(parsed["자산기준"]),
+      carAssetLimit: optionalString(parsed["자동차기준"]),
+      noHomeCondition: optionalString(parsed["무주택조건"]),
+      subscriptionCondition,
+      deposit: depositMap,
+      rent: rentMap,
+      target: optionalString(parsed["신청대상"]),
+      notes: optionalString(parsed["기타특이사항"]),
+      depositAmount: depositAmountMap,
+      rentAmount: rentAmountMap,
+      noHomeYearsRequired: parseNoHomeYears(optionalString(parsed["무주택기간"])),
+      subscriptionCountRequired: parseSubscriptionCount(subscriptionCondition),
+    },
+    addressList,
   };
 }
 
@@ -240,8 +322,9 @@ export async function parseNotices(
   notices: Notice[],
   anthropicKey: string,
   onProgress?: ProgressReporter,
-): Promise<ParsedNotice[]> {
+): Promise<ParseNoticesResult> {
   const results: ParsedNotice[] = [];
+  const failedPanIds: string[] = [];
   const total = notices.length;
   let current = 0;
 
@@ -272,17 +355,25 @@ export async function parseNotices(
     try {
       const buffer = await downloadBuffer(notice.pdfUrl);
       const text = await extractTextFromPdf(buffer);
-      const conditions = await parseWithClaude(anthropicKey, text, notice.title);
-      results.push({ ...notice, conditions });
+      const { conditions, addressList } = await parseWithClaude(anthropicKey, text, notice.title);
+      const supplyInfoWithAddress = notice.supplyInfo.map((item, idx) => ({
+        ...item,
+        address: addressList[idx] ?? null,
+      }));
+      results.push({ ...notice, supplyInfo: supplyInfoWithAddress, conditions });
       current += 1;
       emitProgress(`공고문 파싱 ${current}/${total} (${notice.title})`);
     } catch (error) {
       console.error(`[parser] ${notice.panId} 파싱 실패: ${getErrorMessage(error)}`);
       results.push({ ...notice, conditions: emptyConditions() });
+      failedPanIds.push(notice.panId);
       current += 1;
       emitProgress(`공고문 파싱 ${current}/${total} (${notice.title}) - 실패`);
     }
   }
 
-  return results;
+  return {
+    parsed: results,
+    failedPanIds,
+  };
 }

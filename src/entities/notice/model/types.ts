@@ -20,6 +20,7 @@ export interface SupplyItem {
   type: string;
   area: number;
   count: number;
+  address?: string | null;   // 신규: 단지 주소 (API/PDF에서 제공 시)
 }
 
 export interface ParsedConditions {
@@ -32,8 +33,23 @@ export interface ParsedConditions {
   rent: Record<string, string>;
   target: string | null;
   notes: string | null;
+  // 신규: 수치 파싱 결과 (필터·판정용)
+  depositAmount: Record<string, number | null>;
+  rentAmount: Record<string, number | null>;
+  noHomeYearsRequired: number | null;
+  subscriptionCountRequired: number | null;
 }
 
 export interface ParsedNotice extends Notice {
   conditions: ParsedConditions;
+}
+
+// 신규: 자격 판정 결과 타입
+export type EligibilityResult = "pass" | "fail" | "unknown";
+
+export interface EligibilityCheck {
+  label: string;
+  result: EligibilityResult;
+  rawCondition: string | null;
+  userValue: string | null;
 }

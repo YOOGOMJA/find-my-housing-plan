@@ -9,19 +9,6 @@ import {
   toCsv,
 } from "../lib/helpers";
 
-function isValidIsoDate(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return false;
-  }
-
-  const [yearText, monthText, dayText] = value.split("-");
-  const year = Number.parseInt(yearText, 10);
-  const month = Number.parseInt(monthText, 10);
-  const day = Number.parseInt(dayText, 10);
-  const probe = new Date(year, month - 1, day);
-  return probe.getFullYear() === year && probe.getMonth() === month - 1 && probe.getDate() === day;
-}
-
 export async function askSections(): Promise<SetupSection[]> {
   const response = await prompts(
     {
@@ -154,28 +141,6 @@ export async function promptProfile(env: Record<string, string>): Promise<EnvUpd
         initial: Number.parseFloat(env.USER_CAR_ASSET ?? "0"),
         min: 0,
       },
-      {
-        type: "text",
-        name: "subscriptionDate",
-        message: "청약통장 가입일 (YYYY-MM-DD) (USER_SUBSCRIPTION_DATE)",
-        initial: env.USER_SUBSCRIPTION_DATE ?? "2020-01-01",
-        validate: (value: string) =>
-          isValidIsoDate(value) ? true : "YYYY-MM-DD 형식의 유효한 날짜를 입력해주세요. 예: 2020-01-01",
-      },
-      {
-        type: "number",
-        name: "subscriptionCount",
-        message: "청약통장 납입 횟수 (USER_SUBSCRIPTION_COUNT)",
-        initial: Number.parseInt(env.USER_SUBSCRIPTION_COUNT ?? "24", 10),
-        min: 0,
-      },
-      {
-        type: "number",
-        name: "subscriptionAmount",
-        message: "청약통장 납입 총액(만원) (USER_SUBSCRIPTION_AMOUNT)",
-        initial: Number.parseFloat(env.USER_SUBSCRIPTION_AMOUNT ?? "480"),
-        min: 0,
-      },
     ],
     { onCancel: throwOnCancel },
   );
@@ -203,13 +168,6 @@ export async function promptProfile(env: Record<string, string>): Promise<EnvUpd
     USER_INCOME: String(income),
     USER_ASSET: String(parseNumberInput(answers.asset, Number.parseFloat(env.USER_ASSET ?? "30000"))),
     USER_CAR_ASSET: String(parseNumberInput(answers.carAsset, Number.parseFloat(env.USER_CAR_ASSET ?? "0"))),
-    USER_SUBSCRIPTION_DATE: String(answers.subscriptionDate ?? env.USER_SUBSCRIPTION_DATE ?? "2020-01-01"),
-    USER_SUBSCRIPTION_COUNT: String(
-      parseNumberInput(answers.subscriptionCount, Number.parseInt(env.USER_SUBSCRIPTION_COUNT ?? "24", 10)),
-    ),
-    USER_SUBSCRIPTION_AMOUNT: String(
-      parseNumberInput(answers.subscriptionAmount, Number.parseFloat(env.USER_SUBSCRIPTION_AMOUNT ?? "480")),
-    ),
   };
 }
 
@@ -307,6 +265,39 @@ export async function promptFilter(env: Record<string, string>): Promise<EnvUpda
         initial: Number.parseInt(env.USER_MIN_BUILD_YEAR ?? "0", 10),
         min: 0,
       },
+      {
+        type: "text",
+        name: "districts",
+        message: "선호 구 단위 지역 (쉼표 구분, 없으면 엔터) (USER_DISTRICTS)",
+        initial: env.USER_DISTRICTS ?? "",
+      },
+      {
+        type: "number",
+        name: "maxDeposit",
+        message: "보증금 최대 (만원, 0이면 필터 안 함) (USER_MAX_DEPOSIT)",
+        initial: Number.parseFloat(env.USER_MAX_DEPOSIT ?? "0"),
+        min: 0,
+      },
+      {
+        type: "number",
+        name: "maxRent",
+        message: "월임대료 최대 (만원, 0이면 필터 안 함) (USER_MAX_RENT)",
+        initial: Number.parseFloat(env.USER_MAX_RENT ?? "0"),
+        min: 0,
+      },
+      {
+        type: "select",
+        name: "applicantGroup",
+        message: "특별공급 신청 트랙 (USER_APPLICANT_GROUP)",
+        choices: [
+          { title: "일반 (general)", value: "general" },
+          { title: "청년 (youth)", value: "youth" },
+          { title: "신혼부부 (newlywed)", value: "newlywed" },
+          { title: "신생아 (newborn)", value: "newborn" },
+          { title: "다자녀 (multiChild)", value: "multiChild" },
+        ],
+        initial: 0,
+      },
     ],
     { onCancel: throwOnCancel },
   );
@@ -334,5 +325,9 @@ export async function promptFilter(env: Record<string, string>): Promise<EnvUpda
         : (env.USER_HOUSING_TYPES ?? "06,13").split(","),
     ),
     USER_MIN_BUILD_YEAR: String(parseNumberInput(detail.minBuildYear, Number.parseInt(env.USER_MIN_BUILD_YEAR ?? "0", 10))),
+    USER_DISTRICTS: String(detail.districts ?? ""),
+    USER_MAX_DEPOSIT: String(detail.maxDeposit ?? 0),
+    USER_MAX_RENT: String(detail.maxRent ?? 0),
+    USER_APPLICANT_GROUP: String(detail.applicantGroup ?? "general"),
   };
 }

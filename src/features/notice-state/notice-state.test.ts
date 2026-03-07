@@ -32,6 +32,10 @@ const parsedNotice: ParsedNotice = {
     rent: {},
     target: null,
     notes: null,
+    depositAmount: {},
+    rentAmount: {},
+    noHomeYearsRequired: null,
+    subscriptionCountRequired: null,
   },
 };
 

@@ -1,4 +1,4 @@
-import { Notice, ParsedNotice } from "../../../entities/notice";
+import { EligibilityCheck, EligibilityResult, Notice, ParsedNotice } from "../../../entities/notice";
 import { UserProfile } from "../../../entities/user";
 
 const REGION_ALIAS_TO_CODE: Record<string, string> = {
@@ -191,8 +191,102 @@ export function matchesNoticeEligibility(notice: ParsedNotice, user: UserProfile
   return true;
 }
 
+export function matchesDistrict(notice: ParsedNotice, user: UserProfile): boolean {
+  if (user.districts.length === 0) return true;
+
+  const allAddresses = notice.supplyInfo
+    .map((s) => s.address ?? "")
+    .filter(Boolean);
+
+  if (allAddresses.length === 0) return true; // 주소 없으면 필터 안 함
+
+  return user.districts.some((district) =>
+    allAddresses.some((addr) => addr.includes(district))
+  );
+}
+
+export function matchesPrice(notice: ParsedNotice, user: UserProfile): boolean {
+  const { depositAmount, rentAmount } = notice.conditions;
+
+  if (user.maxDeposit > 0 && Object.keys(depositAmount).length > 0) {
+    const anyDepositInRange = Object.values(depositAmount).some(
+      (amount) => amount === null || amount <= user.maxDeposit
+    );
+    if (!anyDepositInRange) return false;
+  }
+
+  if (user.maxRent > 0 && Object.keys(rentAmount).length > 0) {
+    const anyRentInRange = Object.values(rentAmount).some(
+      (amount) => amount === null || amount <= user.maxRent
+    );
+    if (!anyRentInRange) return false;
+  }
+
+  return true;
+}
+
+export function buildEligibilityChecks(notice: ParsedNotice, user: UserProfile): EligibilityCheck[] {
+  const checks: EligibilityCheck[] = [];
+
+  // 소득 판정
+  if (notice.conditions.incomeLimit) {
+    const limit = parseIncomeLimit(notice.conditions.incomeLimit);
+    const result: EligibilityResult = limit === null ? "unknown" : user.income <= limit ? "pass" : "fail";
+    checks.push({
+      label: "소득",
+      result,
+      rawCondition: notice.conditions.incomeLimit,
+      userValue: `월 ${user.income}만원`,
+    });
+  }
+
+  // 자산 판정
+  if (notice.conditions.assetLimit) {
+    const limit = parseAssetLimit(notice.conditions.assetLimit);
+    const result: EligibilityResult = limit === null ? "unknown" : user.asset <= limit ? "pass" : "fail";
+    checks.push({
+      label: "자산",
+      result,
+      rawCondition: notice.conditions.assetLimit,
+      userValue: `${user.asset}만원`,
+    });
+  }
+
+  // 무주택 판정
+  if (notice.conditions.noHomeCondition || notice.conditions.noHomeYearsRequired !== null) {
+    const required = notice.conditions.noHomeYearsRequired;
+    const result: EligibilityResult =
+      required === null ? "unknown" : user.noHomeYears >= required ? "pass" : "fail";
+    checks.push({
+      label: "무주택",
+      result,
+      rawCondition: notice.conditions.noHomeCondition,
+      userValue: `${user.noHomeYears}년`,
+    });
+  }
+
+  // 청약통장 판정
+  if (notice.conditions.subscriptionCondition || notice.conditions.subscriptionCountRequired !== null) {
+    const required = notice.conditions.subscriptionCountRequired;
+    const result: EligibilityResult =
+      required === null ? "unknown" : user.subscriptionCount >= required ? "pass" : "fail";
+    checks.push({
+      label: "청약통장",
+      result,
+      rawCondition: notice.conditions.subscriptionCondition,
+      userValue: `${user.subscriptionCount}회`,
+    });
+  }
+
+  return checks;
+}
+
 export function filterNotices(notices: ParsedNotice[], user: UserProfile): ParsedNotice[] {
   return notices.filter(
-    (notice) => matchesHousingPreference(notice, user) && matchesNoticeEligibility(notice, user),
+    (notice) =>
+      matchesHousingPreference(notice, user) &&
+      matchesPrice(notice, user) &&
+      matchesNoticeEligibility(notice, user),
+    // matchesDistrict는 소프트 필터 → 제외가 아닌 메시지에서 강조
   );
 }
