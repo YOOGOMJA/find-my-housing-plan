@@ -65,8 +65,8 @@ describe("buildClaudePrompt 출력에서 신규 필드 파싱", () => {
     expect(result).toBe(12000);
   });
 
-  it("만원이 포함된 복합 문자열에서도 순수 원 단위를 잡는다", () => {
-    // 복합 문자열 케이스: 만원 매치 후에도 별도 원 단위가 존재하지 않으므로 만원 결과 반환
+  it("한글 접두어가 있는 순수 원 단위 표기를 변환한다", () => {
+    // manMatch·eokMatch 모두 미매치 → wonMatch 경로: 8,671,000원 → 867.1만원
     const result = parseAmountToManwon("임대보증금 8,671,000원");
     expect(result).toBe(867.1);
   });
