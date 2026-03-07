@@ -25,7 +25,7 @@
 - 엔드포인트: `http://apis.data.go.kr/B552555/lhLeaseNoticeInfo1/lhLeaseNoticeInfo1`
 - 검증일: 2026-03-07
 - 인증: 서비스키 필요
-- 활용신청: data.go.kr 활용신청 필요 가능
+- 활용신청: 확인필요 (일반적으로 data.go.kr 활용신청 후 사용)
 
 ### 3-2. 분양임대공고 상세정보 조회
 
@@ -34,7 +34,7 @@
 - 엔드포인트: `http://apis.data.go.kr/B552555/lhLeaseNoticeDtlInfo1/getLeaseNoticeDtlInfo1`
 - 검증일: 2026-03-07
 - 인증: 서비스키 필요
-- 활용신청: data.go.kr 활용신청 필요 가능
+- 활용신청: 확인필요 (일반적으로 data.go.kr 활용신청 후 사용)
 
 ### 3-3. 임대단지 조회
 
@@ -43,7 +43,7 @@
 - 서비스 URL: `https://data.myhome.go.kr:443/rentalHouseList`
 - 검증일: 2026-03-07
 - 인증: 서비스키 필요
-- 활용신청: data.go.kr 활용신청 필요 가능
+- 활용신청: 확인필요 (일반적으로 data.go.kr 활용신청 후 사용)
 
 ### 3-4. 사전청약 계열 API
 
@@ -52,7 +52,7 @@
 - 사전청약 상세정보 조회 서비스: https://www.data.go.kr/data/15124603/openapi.do
 - 검증일: 2026-03-07
 - 인증: 서비스키 필요
-- 활용신청: data.go.kr 활용신청 필요 가능
+- 활용신청: 확인필요 (일반적으로 data.go.kr 활용신청 후 사용)
 
 ## 4) SH 관련 데이터 소스 (확인됨)
 
