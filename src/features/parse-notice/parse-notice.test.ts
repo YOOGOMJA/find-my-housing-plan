@@ -64,6 +64,28 @@ describe("buildClaudePrompt 출력에서 신규 필드 파싱", () => {
     const result = parseAmountToManwon("1억 2,000만원");
     expect(result).toBe(12000);
   });
+
+  it("만원이 포함된 복합 문자열에서도 순수 원 단위를 잡는다", () => {
+    // 복합 문자열 케이스: 만원 매치 후에도 별도 원 단위가 존재하지 않으므로 만원 결과 반환
+    const result = parseAmountToManwon("임대보증금 8,671,000원");
+    expect(result).toBe(867.1);
+  });
+
+  it("만원 표기에서 원 단위로 오파싱하지 않는다", () => {
+    // "8,000만원" → manMatch가 잡으므로 wonMatch가 개입하지 않아야 함
+    const result = parseAmountToManwon("8,000만원");
+    expect(result).toBe(8000);
+  });
+
+  it("억+만원 복합 표기에서 순수 원 단위를 혼동하지 않는다", () => {
+    const result = parseAmountToManwon("1억 2,000만원");
+    expect(result).toBe(12000);
+  });
+
+  it("순수 원 단위에서 만원 접미어가 없으면 정상 변환한다", () => {
+    const result = parseAmountToManwon("145,630원");
+    expect(result).toBeCloseTo(14.563, 2);
+  });
 });
 
 describe("buildClaudePrompt", () => {
