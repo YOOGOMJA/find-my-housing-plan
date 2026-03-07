@@ -14,6 +14,8 @@ sh-lh-alert/n8n_data/
 node_modules/
 *.log
 npm-debug.log*
+dist/
+data/seen.json
 
 # 에디터
 .vscode/

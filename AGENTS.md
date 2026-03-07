@@ -24,3 +24,13 @@
 - 작업 시작 전 GitHub Issue를 생성하고, 필요하면 유사/중복 이슈여도 현재 작업 추적용으로 만든다.
 - 커밋은 Conventional Commits 형식을 따르며 `scope`는 이슈 번호(`(#123)`)를 사용한다.
 - 커밋 메시지, 이슈, PR 제목/본문은 기본적으로 한글로 작성한다.
+
+## 빠른 실행
+
+```bash
+# 공고 알림 실행
+npx ts-node src/index.ts
+
+# 테스트
+npx jest
+```
