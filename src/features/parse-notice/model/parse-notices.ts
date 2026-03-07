@@ -167,7 +167,7 @@ export function parseAmountToManwon(text: string | null | undefined): number | n
   if (!matched) {
     // 순수 원 단위 표기 처리: "8,671,000원" → 만원 변환
     // 부정 후방 탐색으로 "만원"·"억원"의 "원" 부분에는 매치되지 않도록 보장
-    const wonMatch = text.match(/(?<![만억])([\d,]+)\s*원/);
+    const wonMatch = text.match(/(?<![만억])([\d,]+(?:\.\d+)?)\s*원/);
     if (wonMatch) {
       const won = parseFloat(wonMatch[1].replace(/,/g, ""));
       if (isFinite(won)) { return won / 10000; }
@@ -191,27 +191,17 @@ function normalizePriceKey(key: string): string {
   return trimmed.replace(/\s+/g, "");
 }
 
-function toPriceString(value: unknown): string | null {
+export function toPriceString(value: unknown): string | null {
   if (typeof value === "string") {
     const trimmed = value.trim();
     return trimmed || null;
   }
 
   if (typeof value === "number" && Number.isFinite(value)) {
-    return String(value);
+    return `${String(value)}원`;
   }
 
   return null;
-}
-
-function upsertPriceRecord(record: Record<string, string>, key: string, value: string): void {
-  if (!key || !value) {
-    return;
-  }
-
-  if (!record[key]) {
-    record[key] = value;
-  }
 }
 
 export function buildClaudePrompt(noticeTitle: string, text: string): string {
@@ -280,17 +270,18 @@ function optionalString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
-function toPriceRecord(value: unknown): Record<string, string> {
-  const result: Record<string, string> = {};
+export function toPriceRecord(value: unknown): Record<string, string> {
+  const exactRecord: Record<string, string> = {};
+  const aliasRecord: Record<string, string> = {};
 
   const scalar = toPriceString(value);
   if (scalar) {
-    result[DEFAULT_PRICE_KEY] = scalar;
-    return result;
+    exactRecord[DEFAULT_PRICE_KEY] = scalar;
+    return exactRecord;
   }
 
   if (!isJsonObject(value)) {
-    return result;
+    return exactRecord;
   }
 
   for (const [key, item] of Object.entries(value)) {
@@ -299,20 +290,24 @@ function toPriceRecord(value: unknown): Record<string, string> {
       continue;
     }
 
-    const normalizedKey = normalizePriceKey(key);
-    if (normalizedKey) {
-      upsertPriceRecord(result, normalizedKey, priceText);
-    }
-
     const rawKey = key.trim();
     if (rawKey) {
-      upsertPriceRecord(result, rawKey, priceText);
+      exactRecord[rawKey] = priceText;
     } else {
-      upsertPriceRecord(result, DEFAULT_PRICE_KEY, priceText);
+      exactRecord[DEFAULT_PRICE_KEY] = priceText;
+      continue;
+    }
+
+    const normalizedKey = normalizePriceKey(key);
+    if (normalizedKey && !exactRecord[normalizedKey] && !aliasRecord[normalizedKey]) {
+      aliasRecord[normalizedKey] = priceText;
     }
   }
 
-  return result;
+  return {
+    ...aliasRecord,
+    ...exactRecord,
+  };
 }
 
 function extractMessageText(content: unknown): string {

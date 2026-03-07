@@ -6,6 +6,8 @@ import {
   parseNoHomeYears,
   parseSubscriptionCount,
   parseAmountToManwon,
+  toPriceRecord,
+  toPriceString,
 } from ".";
 
 describe("extractJsonFromText", () => {
@@ -74,6 +76,35 @@ describe("buildClaudePrompt 출력에서 신규 필드 파싱", () => {
   it("순수 원 단위에서 만원 접미어가 없으면 정상 변환한다", () => {
     const result = parseAmountToManwon("145,630원");
     expect(result).toBeCloseTo(14.563, 2);
+  });
+
+  it("콤마 없는 원 단위도 정상 변환한다", () => {
+    const result = parseAmountToManwon("8671000원");
+    expect(result).toBe(867.1);
+  });
+});
+
+describe("가격 값/키 정규화", () => {
+  it("숫자형 가격은 1원 단위 문자열로 변환한다", () => {
+    expect(toPriceString(8671000)).toBe("8671000원");
+  });
+
+  it("정확 키가 정규화 별칭보다 우선한다", () => {
+    const result = toPriceRecord({
+      "26형": "800만원",
+      "26": "900만원",
+    });
+
+    expect(result["26"]).toBe("900만원");
+    expect(result["26형"]).toBe("800만원");
+  });
+
+  it("객체의 숫자형 값도 원 단위로 저장한다", () => {
+    const result = toPriceRecord({
+      "26": 8671000,
+    });
+
+    expect(result["26"]).toBe("8671000원");
   });
 });
 
