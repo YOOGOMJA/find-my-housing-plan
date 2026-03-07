@@ -61,5 +61,65 @@ describe("createProgressReporter", () => {
 
     expect(logged.some((line) => line.startsWith("전체 ["))).toBe(true);
     expect(logged.some((line) => line.startsWith("현재 [수집]"))).toBe(true);
+    expect(logged.some((line) => /현재 \[[|\/\\-] /.test(line))).toBe(false);
+  });
+
+  it("TTY 환경에서 현재 라인에 스피너를 표시한다", () => {
+    const writes: string[] = [];
+    const writeSpy = jest.spyOn(process.stdout, "write").mockImplementation((chunk: string | Uint8Array) => {
+      writes.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+      return true;
+    });
+
+    withTty(true, () => {
+      const reporter = createProgressReporter();
+      reporter.report({ phase: "collect", current: 1, total: 2, percent: 50, message: "수집 1/2" });
+      reporter.flush();
+    });
+
+    writeSpy.mockRestore();
+
+    const output = writes.join("");
+    expect(/현재 \[[|\/\\-] 수집\]/.test(output)).toBe(true);
+  });
+
+  it("TTY 환경에서 전체 바 라인 끝에 스피너를 표시한다", () => {
+    const writes: string[] = [];
+    const writeSpy = jest.spyOn(process.stdout, "write").mockImplementation((chunk: string | Uint8Array) => {
+      writes.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+      return true;
+    });
+
+    withTty(true, () => {
+      const reporter = createProgressReporter();
+      reporter.report({ phase: "collect", current: 1, total: 2, percent: 50, message: "수집 1/2" });
+      reporter.flush();
+    });
+
+    writeSpy.mockRestore();
+
+    const output = writes.join("");
+    expect(/전체 \[[^\]]+\] \d+% [|\/\\-]/.test(output)).toBe(true);
+  });
+
+  it("마지막 이벤트가 완료 상태면 complete에서 중복 출력하지 않는다", () => {
+    const writes: string[] = [];
+    const writeSpy = jest.spyOn(process.stdout, "write").mockImplementation((chunk: string | Uint8Array) => {
+      writes.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+      return true;
+    });
+
+    withTty(true, () => {
+      const reporter = createProgressReporter();
+      reporter.report({ phase: "notify", current: 4, total: 4, percent: 100, message: "Slack 전송 4/4" });
+      reporter.complete();
+      reporter.flush();
+    });
+
+    writeSpy.mockRestore();
+
+    const output = writes.join("");
+    const occurrences = output.split("Slack 전송 4/4").length - 1;
+    expect(occurrences).toBe(1);
   });
 });
