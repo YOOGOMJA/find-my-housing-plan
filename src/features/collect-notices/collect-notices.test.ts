@@ -1,4 +1,5 @@
 import {
+  assertSuccessStatus,
   classifyApplicationStatus,
   extractItems,
   inferListStatusPhase,
@@ -96,5 +97,17 @@ describe("shouldCollectByProcessed", () => {
   it("upcoming으로 본 공고가 open으로 전이되면 다시 수집한다", () => {
     const processed = new Set([toProcessedKey("A001", "upcoming")]);
     expect(shouldCollectByProcessed(processed, "A001", "open")).toBe(true);
+  });
+});
+
+describe("assertSuccessStatus", () => {
+  it("2xx 응답은 통과한다", () => {
+    expect(() => assertSuccessStatus(200, "https://example.com", {})).not.toThrow();
+  });
+
+  it("비정상 응답은 예외를 던진다", () => {
+    expect(() => assertSuccessStatus(403, "https://example.com", { message: "forbidden" })).toThrow(
+      "API 호출 실패",
+    );
   });
 });
