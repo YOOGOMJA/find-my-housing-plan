@@ -8,10 +8,12 @@ export function createProgressReporter(): { report: ProgressReporter; flush: () 
     notify: "전송",
   };
   const phaseOrder: ProgressPhase[] = ["collect", "parse", "notify"];
+  const spinnerFrames = ["|", "/", "-", "\\"];
   const barWidth = 20;
 
   let hasRendered = false;
   let lastEvent: ProgressEvent | null = null;
+  let spinnerIndex = 0;
 
   const clampPercent = (value: number): number => {
     if (!Number.isFinite(value)) {
@@ -32,7 +34,10 @@ export function createProgressReporter(): { report: ProgressReporter; flush: () 
   };
 
   const renderLines = (overallPercent: number, currentLine: string): void => {
-    const overallLine = `전체 [${makeBar(overallPercent)}] ${clampPercent(overallPercent)}%`;
+    const spinner = spinnerFrames[spinnerIndex % spinnerFrames.length];
+    const overallLine = isTty
+      ? `전체 [${makeBar(overallPercent)}] ${clampPercent(overallPercent)}% ${spinner}`
+      : `전체 [${makeBar(overallPercent)}] ${clampPercent(overallPercent)}%`;
 
     if (!isTty) {
       console.log(overallLine);
@@ -57,15 +62,37 @@ export function createProgressReporter(): { report: ProgressReporter; flush: () 
     hasRendered = false;
   };
 
+  const formatCurrentLine = (event: ProgressEvent): string => {
+    const percent = clampPercent(event.percent);
+    if (!isTty) {
+      return `현재 [${phaseLabel[event.phase]}] ${event.message} (${event.current}/${event.total}, ${percent}%)`;
+    }
+
+    const frame = spinnerFrames[spinnerIndex % spinnerFrames.length];
+    return `현재 [${frame} ${phaseLabel[event.phase]}] ${event.message} (${event.current}/${event.total}, ${percent}%)`;
+  };
+
+  const isCompletedEvent = (event: ProgressEvent): boolean => {
+    if (clampPercent(event.percent) >= 100) {
+      return true;
+    }
+    return event.total > 0 && event.current >= event.total;
+  };
+
   const report = (event: ProgressEvent): void => {
-    const currentLine = `현재 [${phaseLabel[event.phase]}] ${event.message} (${event.current}/${event.total}, ${clampPercent(
-      event.percent,
-    )}%)`;
+    const currentLine = formatCurrentLine(event);
     renderLines(toOverallPercent(event), currentLine);
+    if (isTty) {
+      spinnerIndex = (spinnerIndex + 1) % spinnerFrames.length;
+    }
     lastEvent = event;
   };
 
   const complete = (): void => {
+    if (lastEvent && isCompletedEvent(lastEvent)) {
+      return;
+    }
+
     const currentLine = lastEvent
       ? `현재 [${phaseLabel[lastEvent.phase]}] ${lastEvent.message} (100%)`
       : "현재 [완료] 파이프라인 완료 (100%)";
