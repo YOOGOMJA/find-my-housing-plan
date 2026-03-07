@@ -1,35 +1,18 @@
-import * as fs from "fs";
-import * as path from "path";
 import { loadConfig, loadEnv } from "./config";
-import { collectNotices, toSeenKey } from "./collector";
+import { collectNotices } from "./collector";
 import { parseNotices } from "./parser";
 import { filterNotices, matchesHousingPreference } from "./filter";
 import { sendSlackNotification } from "./notifier";
 import { NoticeApplicationStatus } from "./types";
-
-const SEEN_PATH = path.resolve(process.cwd(), "data/seen.json");
-
-function loadSeen(): Set<string> {
-  if (!fs.existsSync(SEEN_PATH)) {
-    return new Set();
-  }
-
-  try {
-    const parsed = JSON.parse(fs.readFileSync(SEEN_PATH, "utf-8")) as unknown;
-    if (Array.isArray(parsed)) {
-      return new Set(parsed.filter((item): item is string => typeof item === "string"));
-    }
-  } catch {
-    return new Set();
-  }
-
-  return new Set();
-}
-
-function saveSeen(seen: Set<string>): void {
-  fs.mkdirSync(path.dirname(SEEN_PATH), { recursive: true });
-  fs.writeFileSync(SEEN_PATH, JSON.stringify([...seen], null, 2), "utf-8");
-}
+import {
+  loadNotifiedState,
+  loadProcessedState,
+  markNotifiedNotices,
+  markProcessedNotices,
+  saveNotifiedState,
+  saveProcessedState,
+  toProcessedKeySet,
+} from "./state";
 
 function normalizeApplicationStatus(value: string | undefined): NoticeApplicationStatus {
   if (value === "upcoming" || value === "open" || value === "closed" || value === "unknown") {
@@ -42,10 +25,13 @@ function normalizeApplicationStatus(value: string | undefined): NoticeApplicatio
 async function main(): Promise<void> {
   loadEnv();
   const config = loadConfig();
-  const seen = loadSeen();
+  const processedState = loadProcessedState();
+  const notifiedState = loadNotifiedState();
+  const runId = new Date().toISOString();
+  const processedKeys = toProcessedKeySet(processedState);
 
   console.log("[1/4] 공고 수집 중...");
-  const notices = await collectNotices(config.apiKey, seen);
+  const notices = await collectNotices(config.apiKey, processedKeys);
   console.log(`  처리 대상 공고 ${notices.length}건`);
 
   if (notices.length === 0) {
@@ -58,6 +44,8 @@ async function main(): Promise<void> {
   console.log(`  선호조건 후보 ${candidates.length}건`);
 
   if (candidates.length === 0) {
+    markProcessedNotices(processedState, notices);
+    saveProcessedState(processedState);
     console.log("선호조건에 맞는 공고가 없습니다.");
     return;
   }
@@ -87,13 +75,12 @@ async function main(): Promise<void> {
   if (matched.length > 0) {
     console.log("[5/5] Slack 알림 전송 중...");
     await sendSlackNotification(config.slackWebhookUrl, matched);
+    markNotifiedNotices(notifiedState, matched, runId);
+    saveNotifiedState(notifiedState);
   }
 
-  for (const notice of parsed) {
-    const phase = normalizeApplicationStatus(notice.applicationStatus);
-    seen.add(toSeenKey(notice.panId, phase));
-  }
-  saveSeen(seen);
+  markProcessedNotices(processedState, notices);
+  saveProcessedState(processedState);
 
   console.log("완료.");
 }

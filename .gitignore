@@ -16,6 +16,8 @@ node_modules/
 npm-debug.log*
 dist/
 data/seen.json
+data/processed.json
+data/notified.json
 
 # 에디터
 .vscode/

@@ -1,5 +1,6 @@
 import * as https from "https";
 import { Notice, NoticeApplicationStatus, SupplyItem } from "./types";
+import { toProcessedKey } from "./state";
 
 const LIST_URL = "https://apis.data.go.kr/B552555/lhLeaseNoticeInfo1/lhLeaseNoticeInfo1";
 const DETAIL_URL = "https://apis.data.go.kr/B552555/lhLeaseNoticeDtlInfo1/getLeaseNoticeDtlInfo1";
@@ -212,12 +213,8 @@ export function isNoticeOpen(item: Record<string, unknown>, todayYmd: number): b
   return true;
 }
 
-export function toSeenKey(panId: string, phase: NoticeApplicationStatus): string {
-  return `${panId}:${phase}`;
-}
-
-export function shouldCollectBySeen(
-  seenIds: Set<string>,
+export function shouldCollectByProcessed(
+  processedKeys: Set<string>,
   panId: string,
   phase: NoticeApplicationStatus,
 ): boolean {
@@ -225,15 +222,7 @@ export function shouldCollectBySeen(
     return false;
   }
 
-  if (seenIds.has(toSeenKey(panId, phase))) {
-    return false;
-  }
-
-  if (phase === "upcoming" || phase === "unknown") {
-    return !seenIds.has(panId);
-  }
-
-  return true;
+  return !processedKeys.has(toProcessedKey(panId, phase));
 }
 
 function buildDetailParams(item: Record<string, unknown>, panId: string): Record<string, string> {
@@ -388,7 +377,7 @@ async function fetchSupplyInfo(apiKey: string, item: Record<string, unknown>, pa
   }));
 }
 
-export async function collectNotices(apiKey: string, seenIds: Set<string>): Promise<Notice[]> {
+export async function collectNotices(apiKey: string, processedKeys: Set<string>): Promise<Notice[]> {
   const rawItems = await fetchNoticeList(apiKey);
   const notices: Notice[] = [];
 
@@ -399,7 +388,7 @@ export async function collectNotices(apiKey: string, seenIds: Set<string>): Prom
     }
 
     const detail = await fetchDetailInfo(apiKey, item, panId);
-    if (!shouldCollectBySeen(seenIds, panId, detail.applicationStatus)) {
+    if (!shouldCollectByProcessed(processedKeys, panId, detail.applicationStatus)) {
       continue;
     }
 
