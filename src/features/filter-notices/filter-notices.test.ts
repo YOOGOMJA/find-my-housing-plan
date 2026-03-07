@@ -1,6 +1,7 @@
 import { filterNotices, matchesHousingPreference, matchesNoticeEligibility, matchesDistrict, matchesPrice, buildEligibilityChecks } from ".";
 import { ParsedNotice } from "../../entities/notice";
 import { UserProfile } from "../../entities/user";
+import { IncomeStandardCatalog } from "../income-standard";
 
 const baseUser: UserProfile = {
   age: 30,
@@ -49,6 +50,40 @@ const baseNotice: ParsedNotice = {
     contractAmount: {},
     noHomeYearsRequired: null,
     subscriptionCountRequired: null,
+  },
+};
+
+const incomeCatalog: IncomeStandardCatalog = {
+  rootDir: "/tmp",
+  latest: {
+    year: 2025,
+    publishedAt: "2025-02-01",
+    sourceUrl: "https://example.com/source",
+    unit: "만원/월",
+    householdIncome: {
+      "1": 321,
+      "2": 489,
+      "3": 671,
+      "4": 763,
+      "5": 804,
+      "6": 873,
+    },
+  },
+  byYear: {
+    2025: {
+      year: 2025,
+      publishedAt: "2025-02-01",
+      sourceUrl: "https://example.com/source",
+      unit: "만원/월",
+      householdIncome: {
+        "1": 321,
+        "2": 489,
+        "3": 671,
+        "4": 763,
+        "5": 804,
+        "6": 873,
+      },
+    },
   },
 };
 
@@ -120,6 +155,34 @@ describe("matchesNoticeEligibility", () => {
     };
 
     expect(matchesNoticeEligibility(notice, { ...baseUser, income: 301 })).toBe(false);
+  });
+
+  it("퍼센트형 소득 기준은 기준표로 환산해 판정한다", () => {
+    const notice = {
+      ...baseNotice,
+      noticeDate: "20260307",
+      conditions: { ...baseNotice.conditions, incomeLimit: "도시근로자 월평균소득 100% 이하" },
+    };
+
+    expect(
+      matchesNoticeEligibility(notice, { ...baseUser, householdSize: 1, income: 320 }, {
+        incomeStandardCatalog: incomeCatalog,
+      }),
+    ).toBe(true);
+    expect(
+      matchesNoticeEligibility(notice, { ...baseUser, householdSize: 1, income: 322 }, {
+        incomeStandardCatalog: incomeCatalog,
+      }),
+    ).toBe(false);
+  });
+
+  it("퍼센트형이지만 기준표가 없으면 unknown(하드 탈락하지 않음)", () => {
+    const notice = {
+      ...baseNotice,
+      conditions: { ...baseNotice.conditions, incomeLimit: "도시근로자 월평균소득 100% 이하" },
+    };
+
+    expect(matchesNoticeEligibility(notice, { ...baseUser, income: 9999 }, { incomeStandardCatalog: null })).toBe(true);
   });
 
   it("PDF가 있는데 파싱 결과가 비어 있으면 false", () => {
@@ -222,6 +285,13 @@ describe("자격 판정 (buildEligibilityChecks)", () => {
     const checks = buildEligibilityChecks(notice, { ...baseUser, income: 200 });
     const income = checks.find((c) => c.label === "소득");
     expect(income?.result).toBe("pass");
+  });
+
+  it("퍼센트형 소득 + 기준표 누락이면 unknown", () => {
+    const notice = { ...baseNotice, conditions: { ...baseNotice.conditions, incomeLimit: "도시근로자 월평균소득 100% 이하" } };
+    const checks = buildEligibilityChecks(notice, baseUser, { incomeStandardCatalog: null });
+    const income = checks.find((c) => c.label === "소득");
+    expect(income?.result).toBe("unknown");
   });
 
   it("소득 초과 케이스", () => {

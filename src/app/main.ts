@@ -1,6 +1,8 @@
+import * as path from "path";
 import { Notice, NoticeApplicationStatus } from "../entities/notice";
 import { collectNotices } from "../features/collect-notices";
 import { filterNotices, matchesHousingPreference } from "../features/filter-notices";
+import { loadIncomeStandardCatalog } from "../features/income-standard";
 import { classifyNoticePurposes } from "../features/notice-purpose";
 import {
   loadNotifiedState,
@@ -214,7 +216,12 @@ export async function runMain(): Promise<void> {
     message: `조건 필터링 시작 (대상 ${parsedSuccess.length}건)`,
   });
   stageStartedAt = Date.now();
-  const matched = filterNotices(parsedSuccess, config.user);
+  const incomeStandardPath = path.resolve(process.cwd(), config.incomeStandard.path);
+  const incomeStandardCatalog = loadIncomeStandardCatalog(incomeStandardPath);
+  const matched = filterNotices(parsedSuccess, config.user, {
+    incomeStandardCatalog,
+    forcedIncomeStandardYear: config.incomeStandard.year,
+  });
   stageTimingsMs.filter = Date.now() - stageStartedAt;
   const limitedMatched = isReprocess
     ? matched.slice(0, config.reprocess.maxNotifications)
@@ -270,6 +277,10 @@ export async function runMain(): Promise<void> {
           keepAlive: config.performance.httpKeepAlive,
           includeFilterSummary: true,
           isReprocess,
+          incomeEligibilityContext: {
+            incomeStandardCatalog,
+            forcedIncomeStandardYear: config.incomeStandard.year,
+          },
         },
       );
       stageTimingsMs.notify = Date.now() - stageStartedAt;
