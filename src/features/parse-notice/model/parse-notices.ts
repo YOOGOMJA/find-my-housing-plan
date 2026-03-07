@@ -6,6 +6,7 @@ import { ProgressReporter } from "../../../shared/types";
 import { mapWithConcurrency } from "../../../shared/lib";
 
 type JsonObject = Record<string, unknown>;
+const DEFAULT_PRICE_KEY = "default";
 
 interface PdfPage {
   getTextContent(): Promise<{ items: Array<{ str?: unknown }> }>;
@@ -166,7 +167,7 @@ export function parseAmountToManwon(text: string | null | undefined): number | n
   if (!matched) {
     // 순수 원 단위 표기 처리: "8,671,000원" → 만원 변환
     // 부정 후방 탐색으로 "만원"·"억원"의 "원" 부분에는 매치되지 않도록 보장
-    const wonMatch = text.match(/(?<![만억])([\d,]+)\s*원/);
+    const wonMatch = text.match(/(?<![만억])([\d,]+(?:\.\d+)?)\s*원/);
     if (wonMatch) {
       const won = parseFloat(wonMatch[1].replace(/,/g, ""));
       if (isFinite(won)) { return won / 10000; }
@@ -174,6 +175,33 @@ export function parseAmountToManwon(text: string | null | undefined): number | n
   }
 
   return matched ? total : null;
+}
+
+function normalizePriceKey(key: string): string {
+  const trimmed = key.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const numberMatch = trimmed.match(/(\d+(?:\.\d+)?)/);
+  if (numberMatch) {
+    return numberMatch[1];
+  }
+
+  return trimmed.replace(/\s+/g, "");
+}
+
+export function toPriceString(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return `${String(value)}원`;
+  }
+
+  return null;
 }
 
 export function buildClaudePrompt(noticeTitle: string, text: string): string {
@@ -196,6 +224,7 @@ ${text.slice(0, 6000)}
   "청약통장조건": "예: 12회 이상 납입 (횟수 포함)",
   "임대보증금": {"26형": "금액"},
   "월임대료": {"26형": "금액"},
+  "계약금": {"26형": "금액"},
   "단지주소목록": ["서울시 송파구 잠실동 123-4"],
   "기타특이사항": "중요한 내용 요약"
 }
@@ -226,10 +255,12 @@ function emptyConditions(): ParsedConditions {
     subscriptionCondition: null,
     deposit: {},
     rent: {},
+    contract: {},
     target: null,
     notes: null,
     depositAmount: {},
     rentAmount: {},
+    contractAmount: {},
     noHomeYearsRequired: null,
     subscriptionCountRequired: null,
   };
@@ -239,19 +270,44 @@ function optionalString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
-function toStringRecord(value: unknown): Record<string, string> {
-  if (!isJsonObject(value)) {
-    return {};
+export function toPriceRecord(value: unknown): Record<string, string> {
+  const exactRecord: Record<string, string> = {};
+  const aliasRecord: Record<string, string> = {};
+
+  const scalar = toPriceString(value);
+  if (scalar) {
+    exactRecord[DEFAULT_PRICE_KEY] = scalar;
+    return exactRecord;
   }
 
-  const result: Record<string, string> = {};
+  if (!isJsonObject(value)) {
+    return exactRecord;
+  }
+
   for (const [key, item] of Object.entries(value)) {
-    if (typeof item === "string") {
-      result[key] = item;
+    const priceText = toPriceString(item);
+    if (!priceText) {
+      continue;
+    }
+
+    const rawKey = key.trim();
+    if (rawKey) {
+      exactRecord[rawKey] = priceText;
+    } else {
+      exactRecord[DEFAULT_PRICE_KEY] = priceText;
+      continue;
+    }
+
+    const normalizedKey = normalizePriceKey(key);
+    if (normalizedKey && !exactRecord[normalizedKey] && !aliasRecord[normalizedKey]) {
+      aliasRecord[normalizedKey] = priceText;
     }
   }
 
-  return result;
+  return {
+    ...aliasRecord,
+    ...exactRecord,
+  };
 }
 
 function extractMessageText(content: unknown): string {
@@ -290,8 +346,9 @@ async function parseWithClaude(
     return { conditions: emptyConditions(), addressList: [] };
   }
 
-  const depositMap = toStringRecord(parsed["임대보증금"]);
-  const rentMap = toStringRecord(parsed["월임대료"]);
+  const depositMap = toPriceRecord(parsed["임대보증금"]);
+  const rentMap = toPriceRecord(parsed["월임대료"]);
+  const contractMap = toPriceRecord(parsed["계약금"]);
 
   const depositAmountMap: Record<string, number | null> = {};
   for (const [key, val] of Object.entries(depositMap)) {
@@ -301,6 +358,11 @@ async function parseWithClaude(
   const rentAmountMap: Record<string, number | null> = {};
   for (const [key, val] of Object.entries(rentMap)) {
     rentAmountMap[key] = parseAmountToManwon(val);
+  }
+
+  const contractAmountMap: Record<string, number | null> = {};
+  for (const [key, val] of Object.entries(contractMap)) {
+    contractAmountMap[key] = parseAmountToManwon(val);
   }
 
   const addressList = Array.isArray(parsed["단지주소목록"])
@@ -318,10 +380,12 @@ async function parseWithClaude(
       subscriptionCondition,
       deposit: depositMap,
       rent: rentMap,
+      contract: contractMap,
       target: optionalString(parsed["신청대상"]),
       notes: optionalString(parsed["기타특이사항"]),
       depositAmount: depositAmountMap,
       rentAmount: rentAmountMap,
+      contractAmount: contractAmountMap,
       noHomeYearsRequired: parseNoHomeYears(optionalString(parsed["무주택기간"])),
       subscriptionCountRequired: parseSubscriptionCount(subscriptionCondition),
     },

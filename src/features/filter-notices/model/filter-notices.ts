@@ -102,7 +102,8 @@ function hasExtractedEligibilityData(notice: ParsedNotice): boolean {
       conditions.target ||
       conditions.notes ||
       Object.keys(conditions.deposit).length > 0 ||
-      Object.keys(conditions.rent).length > 0,
+      Object.keys(conditions.rent).length > 0 ||
+      Object.keys(conditions.contract).length > 0,
   );
 }
 
