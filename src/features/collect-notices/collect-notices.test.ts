@@ -20,6 +20,19 @@ describe("extractItems", () => {
     expect(extractItems(body)[0].PAN_ID).toBe("A001");
   });
 
+  it("헤더 배열(*Nm)보다 실데이터 배열을 우선한다", () => {
+    const body = [
+      {
+        dsList01Nm: [{ HTY_DS_NM: "주택유형", GNR_SPL_RMNO: "공급호수" }],
+        dsList01: [{ HTY_DS_NM: "전용59㎡", GNR_SPL_RMNO: "2" }],
+      },
+    ];
+
+    const result = extractItems(body);
+    expect(result).toHaveLength(1);
+    expect(result[0].HTY_DS_NM).toBe("전용59㎡");
+  });
+
   it("빈 배열이면 빈 배열 반환", () => {
     expect(extractItems([])).toEqual([]);
   });

@@ -132,6 +132,32 @@ describe("formatSlackMessage", () => {
     expect(message.text).toContain("전용면적");
     expect(message.text).toContain("분양가격");
   });
+
+  it("면적/세대수가 0이면 미상으로 표시한다", () => {
+    const message = formatSlackMessage({
+      ...notice,
+      supplyInfo: [{ type: "26", area: 0, count: 0 }],
+    }, [], []);
+
+    expect(message.text).toContain("면적 미상");
+    expect(message.text).toContain("세대수 미상");
+    expect(message.text).not.toContain("0㎡ 0세대");
+  });
+
+  it("가격 정보가 '-'이면 비고에 미확인 사유를 추가한다", () => {
+    const message = formatSlackMessage({
+      ...notice,
+      conditions: {
+        ...notice.conditions,
+        notes: null,
+        deposit: {},
+        rent: {},
+      },
+    }, [], []);
+
+    expect(message.text).toContain("📝 *비고*");
+    expect(message.text).toContain("가격 정보 미확인");
+  });
 });
 
 describe("formatSlackMessage — 판정 결과 포함", () => {
