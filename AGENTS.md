@@ -71,6 +71,12 @@ docs/plans/                 # 설계 및 구현 계획
 - Codex 환경에서는 `request_user_input`(Plan 모드 전용)을 우선 사용하고, Default 모드에서는 일반 텍스트 질문으로 대체한다.
 - Claude 환경에서는 `AskUserQuestionTool`/`AskUserQuestion` 계열 도구가 노출된 경우 이를 우선 사용하고, 해당 도구가 없으면 일반 텍스트 질문으로 대체한다.
 
+## 문서 작성/리뷰 원칙
+
+- 문서를 작성할 때는 **progressive disclosure(점진적 공개)** 관점으로 구성한다.
+- 문서 리뷰를 할 때도 같은 원칙을 적용해, 상위 요약 → 세부 내용 → 참고 자료 순으로 정보가 자연스럽게 드러나는지 확인한다.
+- 기본 구조 권장: `요약(핵심 결론)` → `실행/적용 방법` → `세부 스펙/예외` → `참고 링크`.
+
 ## 협업 규칙 (Commit / Issue / PR)
 
 - 상세 규칙은 `CONTRIBUTING.md`를 기준으로 따른다.
