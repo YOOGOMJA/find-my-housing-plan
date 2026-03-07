@@ -66,6 +66,11 @@ describe("matchesHousingPreference", () => {
     expect(matchesHousingPreference(notice, { ...baseUser, regions: ["11", "00"] })).toBe(true);
   });
 
+  it("사용자 지역에 전국(00)이 있으면 개별 지역 공고도 true", () => {
+    const notice = { ...baseNotice, region: "41" };
+    expect(matchesHousingPreference(notice, { ...baseUser, regions: ["00"] })).toBe(true);
+  });
+
   it("면적 범위 내 공급 있으면 true", () => {
     const notice = { ...baseNotice, supplyInfo: [{ type: "26", area: 26.92, count: 10 }] };
     expect(matchesHousingPreference(notice, { ...baseUser, minArea: 20, maxArea: 30 })).toBe(true);

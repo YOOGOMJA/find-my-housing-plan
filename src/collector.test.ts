@@ -1,4 +1,5 @@
 import {
+  classifyApplicationStatus,
   extractItems,
   inferListStatusPhase,
   isNoticeOpen,
@@ -66,6 +67,18 @@ describe("inferListStatusPhase", () => {
 
   it("접수마감이면 closed", () => {
     expect(inferListStatusPhase("접수마감")).toBe("closed");
+  });
+});
+
+describe("classifyApplicationStatus", () => {
+  it("종료일이 날짜만 있으면 당일은 open으로 유지한다", () => {
+    const now = new Date(2026, 2, 19, 10, 0, 0, 0).getTime();
+    expect(classifyApplicationStatus("open", "2026.03.10", "2026.03.19", now)).toBe("open");
+  });
+
+  it("종료일이 날짜만 있으면 다음날부터 closed가 된다", () => {
+    const now = new Date(2026, 2, 20, 0, 0, 0, 0).getTime();
+    expect(classifyApplicationStatus("open", "2026.03.10", "2026.03.19", now)).toBe("closed");
   });
 });
 

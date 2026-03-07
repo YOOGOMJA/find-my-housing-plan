@@ -114,12 +114,16 @@ function matchesRegion(noticeRegion: string, userRegions: string[]): boolean {
     return true;
   }
 
+  const userTokens = new Set(userRegions.map(normalizeRegionToken).filter(Boolean));
+  if (userTokens.has("00")) {
+    return true;
+  }
+
   const noticeToken = normalizeRegionToken(noticeRegion);
   if (!noticeToken) {
     return false;
   }
 
-  const userTokens = new Set(userRegions.map(normalizeRegionToken).filter(Boolean));
   return userTokens.has(noticeToken);
 }
 

@@ -79,7 +79,7 @@ function toNumber(value: unknown): number {
   return 0;
 }
 
-function parseDateTimeToMs(raw: string | null): number | null {
+function parseDateTimeToMs(raw: string | null, fallbackTime: "start" | "end" = "start"): number | null {
   if (!raw) {
     return null;
   }
@@ -92,10 +92,13 @@ function parseDateTimeToMs(raw: string | null): number | null {
   const year = Number.parseInt(match[1], 10);
   const month = Number.parseInt(match[2], 10) - 1;
   const day = Number.parseInt(match[3], 10);
-  const hour = match[4] ? Number.parseInt(match[4], 10) : 0;
-  const minute = match[5] ? Number.parseInt(match[5], 10) : 0;
+  const hasExplicitTime = Boolean(match[4]);
+  const hour = hasExplicitTime ? Number.parseInt(match[4], 10) : fallbackTime === "end" ? 23 : 0;
+  const minute = hasExplicitTime ? (match[5] ? Number.parseInt(match[5], 10) : 0) : fallbackTime === "end" ? 59 : 0;
+  const second = hasExplicitTime ? 0 : fallbackTime === "end" ? 59 : 0;
+  const millisecond = hasExplicitTime ? 0 : fallbackTime === "end" ? 999 : 0;
 
-  const timestamp = new Date(year, month, day, hour, minute, 0, 0).getTime();
+  const timestamp = new Date(year, month, day, hour, minute, second, millisecond).getTime();
   return Number.isFinite(timestamp) ? timestamp : null;
 }
 
@@ -110,14 +113,14 @@ function pickFirstString(source: JsonObject, keys: string[]): string | null {
   return null;
 }
 
-function classifyApplicationStatus(
+export function classifyApplicationStatus(
   listPhase: NoticeApplicationStatus,
   applicationStartDate: string | null,
   applicationEndDate: string | null,
   nowMs: number,
 ): NoticeApplicationStatus {
-  const startMs = parseDateTimeToMs(applicationStartDate);
-  const endMs = parseDateTimeToMs(applicationEndDate);
+  const startMs = parseDateTimeToMs(applicationStartDate, "start");
+  const endMs = parseDateTimeToMs(applicationEndDate, "end");
 
   if (startMs !== null && endMs !== null) {
     if (nowMs < startMs) {
