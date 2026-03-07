@@ -1,4 +1,12 @@
-import { formatManualReviewMessage, formatSlackMessage, groupNoticesByStatus } from ".";
+import * as fs from "fs";
+import {
+  appendSlackHistoryRecord,
+  createSlackHistoryRecord,
+  formatManualReviewMessage,
+  formatSlackMessage,
+  getSlackHistoryPath,
+  groupNoticesByStatus,
+} from ".";
 import { ParsedNotice } from "../../entities/notice";
 import { buildEligibilityChecks } from "../filter-notices";
 import { UserProfile } from "../../entities/user";
@@ -209,5 +217,87 @@ describe("formatManualReviewMessage", () => {
     });
 
     expect(message.text).toContain("사유: PDF 파싱 실패");
+  });
+});
+
+describe("Slack 히스토리 로깅", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it("히스토리 파일 경로를 날짜 기준으로 계산한다", () => {
+    const pathValue = getSlackHistoryPath("2026-03-09T12:34:56.000Z");
+    expect(pathValue).toMatch(/data\/slack-history\/2026-03-09\.jsonl$/);
+  });
+
+  it("히스토리 레코드 필드를 생성한다", () => {
+    const record = createSlackHistoryRecord({
+      runId: "run-1",
+      panId: "PAN-1",
+      messageType: "notice",
+      applicationStatus: "open",
+      payloadText: "payload",
+      status: "success",
+      httpStatus: 200,
+      errorMessage: null,
+      nowIso: "2026-03-09T01:02:03.000Z",
+    });
+
+    expect(record.timestamp).toBe("2026-03-09T01:02:03.000Z");
+    expect(record.messageType).toBe("notice");
+    expect(record.status).toBe("success");
+    expect(record.httpStatus).toBe(200);
+  });
+
+  it("히스토리 레코드를 JSONL 한 줄로 append한다", () => {
+    const record = createSlackHistoryRecord({
+      runId: "run-success",
+      panId: "PAN-1",
+      messageType: "notice",
+      applicationStatus: "open",
+      payloadText: "payload",
+      status: "success",
+      httpStatus: 200,
+      errorMessage: null,
+      nowIso: "2099-01-02T01:02:03.000Z",
+    });
+
+    appendSlackHistoryRecord(record);
+    const filePath = getSlackHistoryPath(record.timestamp);
+    const lines = fs
+      .readFileSync(filePath, "utf-8")
+      .trim()
+      .split("\n")
+      .filter(Boolean);
+    const first = JSON.parse(lines[lines.length - 1] ?? "{}");
+    expect(first.messageType).toBe("notice");
+    expect(first.status).toBe("success");
+    expect(first.panId).toBe("PAN-1");
+  });
+
+  it("실패 케이스도 failed 상태로 append된다", () => {
+    const record = createSlackHistoryRecord({
+      runId: "run-fail",
+      panId: null,
+      messageType: "batch_header",
+      applicationStatus: null,
+      payloadText: "header",
+      status: "failed",
+      httpStatus: 500,
+      errorMessage: "Slack 응답: 500",
+      nowIso: "2099-01-03T01:02:03.000Z",
+    });
+
+    appendSlackHistoryRecord(record);
+    const filePath = getSlackHistoryPath(record.timestamp);
+    const lines = fs
+      .readFileSync(filePath, "utf-8")
+      .trim()
+      .split("\n")
+      .filter(Boolean);
+    const written = JSON.parse(lines[lines.length - 1] ?? "{}");
+    expect(written.status).toBe("failed");
+    expect(written.httpStatus).toBe(500);
+    expect(written.messageType).toBe("batch_header");
   });
 });
