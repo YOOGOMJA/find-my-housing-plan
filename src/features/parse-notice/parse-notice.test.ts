@@ -84,6 +84,7 @@ describe("buildClaudePrompt", () => {
     expect(prompt).toContain("테스트 공고");
     expect(prompt).toContain("공고 본문 내용");
     expect(prompt).toContain("소득기준");
+    expect(prompt).toContain("계약금");
   });
 });
 

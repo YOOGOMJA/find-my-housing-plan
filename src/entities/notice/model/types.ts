@@ -34,11 +34,13 @@ export interface ParsedConditions {
   subscriptionCondition: string | null;
   deposit: Record<string, string>;
   rent: Record<string, string>;
+  contract: Record<string, string>;
   target: string | null;
   notes: string | null;
   // 신규: 수치 파싱 결과 (필터·판정용)
   depositAmount: Record<string, number | null>;
   rentAmount: Record<string, number | null>;
+  contractAmount: Record<string, number | null>;
   noHomeYearsRequired: number | null;
   subscriptionCountRequired: number | null;
 }

@@ -6,6 +6,7 @@ import { ProgressReporter } from "../../../shared/types";
 import { mapWithConcurrency } from "../../../shared/lib";
 
 type JsonObject = Record<string, unknown>;
+const DEFAULT_PRICE_KEY = "default";
 
 interface PdfPage {
   getTextContent(): Promise<{ items: Array<{ str?: unknown }> }>;
@@ -176,6 +177,43 @@ export function parseAmountToManwon(text: string | null | undefined): number | n
   return matched ? total : null;
 }
 
+function normalizePriceKey(key: string): string {
+  const trimmed = key.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const numberMatch = trimmed.match(/(\d+(?:\.\d+)?)/);
+  if (numberMatch) {
+    return numberMatch[1];
+  }
+
+  return trimmed.replace(/\s+/g, "");
+}
+
+function toPriceString(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+
+  return null;
+}
+
+function upsertPriceRecord(record: Record<string, string>, key: string, value: string): void {
+  if (!key || !value) {
+    return;
+  }
+
+  if (!record[key]) {
+    record[key] = value;
+  }
+}
+
 export function buildClaudePrompt(noticeTitle: string, text: string): string {
   return `다음은 LH 공공임대주택 공고문 텍스트입니다. 아래 항목을 JSON으로 추출해줘. 명시되지 않은 항목은 null로 해줘.
 
@@ -196,6 +234,7 @@ ${text.slice(0, 6000)}
   "청약통장조건": "예: 12회 이상 납입 (횟수 포함)",
   "임대보증금": {"26형": "금액"},
   "월임대료": {"26형": "금액"},
+  "계약금": {"26형": "금액"},
   "단지주소목록": ["서울시 송파구 잠실동 123-4"],
   "기타특이사항": "중요한 내용 요약"
 }
@@ -226,10 +265,12 @@ function emptyConditions(): ParsedConditions {
     subscriptionCondition: null,
     deposit: {},
     rent: {},
+    contract: {},
     target: null,
     notes: null,
     depositAmount: {},
     rentAmount: {},
+    contractAmount: {},
     noHomeYearsRequired: null,
     subscriptionCountRequired: null,
   };
@@ -239,15 +280,35 @@ function optionalString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
-function toStringRecord(value: unknown): Record<string, string> {
-  if (!isJsonObject(value)) {
-    return {};
+function toPriceRecord(value: unknown): Record<string, string> {
+  const result: Record<string, string> = {};
+
+  const scalar = toPriceString(value);
+  if (scalar) {
+    result[DEFAULT_PRICE_KEY] = scalar;
+    return result;
   }
 
-  const result: Record<string, string> = {};
+  if (!isJsonObject(value)) {
+    return result;
+  }
+
   for (const [key, item] of Object.entries(value)) {
-    if (typeof item === "string") {
-      result[key] = item;
+    const priceText = toPriceString(item);
+    if (!priceText) {
+      continue;
+    }
+
+    const normalizedKey = normalizePriceKey(key);
+    if (normalizedKey) {
+      upsertPriceRecord(result, normalizedKey, priceText);
+    }
+
+    const rawKey = key.trim();
+    if (rawKey) {
+      upsertPriceRecord(result, rawKey, priceText);
+    } else {
+      upsertPriceRecord(result, DEFAULT_PRICE_KEY, priceText);
     }
   }
 
@@ -290,8 +351,9 @@ async function parseWithClaude(
     return { conditions: emptyConditions(), addressList: [] };
   }
 
-  const depositMap = toStringRecord(parsed["임대보증금"]);
-  const rentMap = toStringRecord(parsed["월임대료"]);
+  const depositMap = toPriceRecord(parsed["임대보증금"]);
+  const rentMap = toPriceRecord(parsed["월임대료"]);
+  const contractMap = toPriceRecord(parsed["계약금"]);
 
   const depositAmountMap: Record<string, number | null> = {};
   for (const [key, val] of Object.entries(depositMap)) {
@@ -301,6 +363,11 @@ async function parseWithClaude(
   const rentAmountMap: Record<string, number | null> = {};
   for (const [key, val] of Object.entries(rentMap)) {
     rentAmountMap[key] = parseAmountToManwon(val);
+  }
+
+  const contractAmountMap: Record<string, number | null> = {};
+  for (const [key, val] of Object.entries(contractMap)) {
+    contractAmountMap[key] = parseAmountToManwon(val);
   }
 
   const addressList = Array.isArray(parsed["단지주소목록"])
@@ -318,10 +385,12 @@ async function parseWithClaude(
       subscriptionCondition,
       deposit: depositMap,
       rent: rentMap,
+      contract: contractMap,
       target: optionalString(parsed["신청대상"]),
       notes: optionalString(parsed["기타특이사항"]),
       depositAmount: depositAmountMap,
       rentAmount: rentAmountMap,
+      contractAmount: contractAmountMap,
       noHomeYearsRequired: parseNoHomeYears(optionalString(parsed["무주택기간"])),
       subscriptionCountRequired: parseSubscriptionCount(subscriptionCondition),
     },

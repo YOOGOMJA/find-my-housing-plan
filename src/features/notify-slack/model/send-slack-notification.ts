@@ -23,7 +23,6 @@ export type SlackHistoryMessageType =
   | "batch_header"
   | "filter_summary"
   | "notice"
-  | "manual_review_header"
   | "manual_review_notice";
 
 export interface SlackHistoryRecord {
@@ -63,6 +62,9 @@ const HOUSING_TYPE_CODE_LABEL: Record<string, string> = {
   "13": "매입임대/전세임대",
   "22": "상가/업무시설",
 };
+const DEFAULT_PRICE_KEY = "default";
+const JEONSE_KEYWORDS = ["장기전세", "전세임대"];
+const MAEIP_KEYWORDS = ["매입임대"];
 
 function formatDate(yyyymmdd: string): string {
   if (/^\d{8}$/.test(yyyymmdd)) {
@@ -110,12 +112,6 @@ function buildBatchHeader(bucket: SlackNoticeBucket, count: number, isReprocess:
   const prefix = isReprocess ? "📣 *LH 공고 알림 (재처리)*" : "📣 *LH 공고 알림*";
   return {
     text: `${prefix} | *${formatBucketTitle(bucket)}* ${count}건`,
-  };
-}
-
-function buildManualReviewHeader(count: number): SlackMessage {
-  return {
-    text: `🟠 *수동 확인 필요* ${count}건 (조건 자동판정 불가)`,
   };
 }
 
@@ -341,24 +337,112 @@ export function groupNoticesByStatus(notices: ParsedNotice[]): Record<SlackNotic
   return grouped;
 }
 
+function normalizePriceLookupKey(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const numberMatch = trimmed.match(/(\d+(?:\.\d+)?)/);
+  if (numberMatch) {
+    return numberMatch[1];
+  }
+
+  return trimmed.replace(/\s+/g, "");
+}
+
+function pickPriceValue(record: Record<string, string>, typeKey: string): string | null {
+  const direct = (record[typeKey] ?? "").trim();
+  if (direct) {
+    return direct;
+  }
+
+  const normalizedType = normalizePriceLookupKey(typeKey);
+  if (normalizedType) {
+    const normalizedDirect = (record[normalizedType] ?? "").trim();
+    if (normalizedDirect) {
+      return normalizedDirect;
+    }
+  }
+
+  for (const [key, value] of Object.entries(record)) {
+    if (normalizePriceLookupKey(key) === normalizedType && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  const fallback = (record[DEFAULT_PRICE_KEY] ?? "").trim();
+  return fallback || null;
+}
+
+function hasKeyword(source: string, keywords: string[]): boolean {
+  return keywords.some((keyword) => source.includes(keyword));
+}
+
+function buildPriceLine(
+  notice: ParsedNotice,
+  itemType: string,
+  areaLabel: string,
+  countLabel: string,
+): { line: string; isReferenceOnly: boolean } {
+  const deposit = pickPriceValue(notice.conditions.deposit, itemType);
+  const rent = pickPriceValue(notice.conditions.rent, itemType);
+  const contract = pickPriceValue(notice.conditions.contract, itemType);
+  const typeSource = `${notice.title} ${notice.upperTypeName ?? ""} ${notice.detailTypeName ?? ""}`;
+  const isJeonseLike = hasKeyword(typeSource, JEONSE_KEYWORDS);
+  const isMaeipLike = hasKeyword(typeSource, MAEIP_KEYWORDS);
+
+  const parts: string[] = [];
+  if (contract) {
+    parts.push(`계약금 ${contract}`);
+  }
+  if (deposit) {
+    parts.push(`보증금 ${deposit}`);
+  }
+  if (rent) {
+    parts.push(`월임대료 ${rent}`);
+  }
+
+  if (parts.length === 0) {
+    return {
+      line: `    ${areaLabel} ${countLabel} | 공고문 참조형`,
+      isReferenceOnly: true,
+    };
+  }
+
+  if (contract) {
+    return {
+      line: `    ${areaLabel} ${countLabel} | 계약금 포함형 | ${parts.join(" / ")}`,
+      isReferenceOnly: false,
+    };
+  }
+
+  if (deposit && !rent && (isJeonseLike || isMaeipLike)) {
+    return {
+      line: `    ${areaLabel} ${countLabel} | 보증금 중심형 | ${parts.join(" / ")}`,
+      isReferenceOnly: false,
+    };
+  }
+
+  return {
+    line: `    ${areaLabel} ${countLabel} | ${parts.join(" / ")}`,
+    isReferenceOnly: false,
+  };
+}
+
 export function formatSlackMessage(
   notice: ParsedNotice,
   eligibilityChecks: EligibilityCheck[],
   preferredDistricts: string[],
 ): SlackMessage {
   const supplyHighlights = extractSupplyHighlights(notice.conditions.notes);
-  let hasMissingPrice = false;
+  let hasReferenceOnlyPrice = false;
 
   const formatAreaLabel = (area: number): string => (area > 0 ? `${area}㎡` : "면적 미상");
   const formatCountLabel = (count: number): string => (count > 0 ? `${count}세대` : "세대수 미상");
 
   const supplyLines = notice.supplyInfo
     .map((item) => {
-      const deposit = notice.conditions.deposit[item.type] ?? "-";
-      const rent = notice.conditions.rent[item.type] ?? "-";
-      if (deposit === "-" || rent === "-") {
-        hasMissingPrice = true;
-      }
       const preferred = preferredDistricts.length > 0 && item.address
         ? preferredDistricts.some((d) => item.address!.includes(d))
         : false;
@@ -368,7 +452,15 @@ export function formatSlackMessage(
         ? `  ${item.address}${prefixMark}`
         : `  ${item.type || "단지 정보 미상"}${prefixMark}`;
 
-      const priceLine = `    ${formatAreaLabel(item.area)} ${formatCountLabel(item.count)} | 보증금 ${deposit} / 월임대료 ${rent}`;
+      const { line: priceLine, isReferenceOnly } = buildPriceLine(
+        notice,
+        item.type,
+        formatAreaLabel(item.area),
+        formatCountLabel(item.count),
+      );
+      if (isReferenceOnly) {
+        hasReferenceOnlyPrice = true;
+      }
 
       let mapLine = "";
       if (item.address) {
@@ -416,8 +508,8 @@ export function formatSlackMessage(
   if (notice.conditions.notes) {
     noteChunks.push(notice.conditions.notes);
   }
-  if (hasMissingPrice) {
-    noteChunks.push("가격 정보 미확인: 원천 API 미제공 또는 PDF/본문 정형 추출 불가");
+  if (hasReferenceOnlyPrice) {
+    noteChunks.push("공고문 참조형: 가격 정보가 구조화되지 않아 원문 확인이 필요합니다.");
   }
 
   const mergedNotes = noteChunks.length > 0 ? noteChunks.join("\n") : null;
@@ -446,12 +538,12 @@ function formatManualReviewReason(reason: ManualReviewReason): string {
 export function formatManualReviewMessage(item: ManualReviewNotice): SlackMessage {
   const { notice, reason } = item;
   const lines = [
-    "🟠 *수동 확인 필요 공고*",
+    "🔔 *LH 공고 알림*",
     `*${notice.title}*`,
     `🏷️ 공고유형: ${formatNoticeType(notice)}`,
     `📌 접수상태: *${formatApplicationStatus(notice.applicationStatus)}*`,
     `🗓️ 공고일: ${formatNoticeDateValue(notice.noticeDate)}`,
-    `⚠️ 사유: ${formatManualReviewReason(reason)}`,
+    `⚠️ 자동추출 누락: ${formatManualReviewReason(reason)}`,
     `🆔 공고 ID: ${formatPanIdLink(notice.panId, notice.noticeUrl)}`,
   ];
 
@@ -751,39 +843,6 @@ export async function sendSlackNotification(
         filterSummarySent = true;
       }
 
-      const manualReviewHeader = buildManualReviewHeader(manualReviewNotices.length);
-      try {
-        const result = await postToSlack(webhookUrl, manualReviewHeader, agent);
-        tryAppendSlackHistory(
-          createSlackHistoryRecord({
-            runId,
-            panId: null,
-            messageType: "manual_review_header",
-            applicationStatus: null,
-            payloadText: manualReviewHeader.text,
-            status: "success",
-            httpStatus: result.statusCode,
-            errorMessage: null,
-          }),
-        );
-      } catch (error) {
-        const statusCode = error instanceof SlackPostError ? error.statusCode : null;
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        tryAppendSlackHistory(
-          createSlackHistoryRecord({
-            runId,
-            panId: null,
-            messageType: "manual_review_header",
-            applicationStatus: null,
-            payloadText: manualReviewHeader.text,
-            status: "failed",
-            httpStatus: statusCode,
-            errorMessage,
-          }),
-        );
-        throw error;
-      }
-
       for (const item of manualReviewNotices) {
         const message = formatManualReviewMessage(item);
         try {
@@ -819,7 +878,7 @@ export async function sendSlackNotification(
         }
 
         current += 1;
-        emitProgress(`Slack 전송 ${current}/${total} (수동확인 필요)`);
+        emitProgress(`Slack 전송 ${current}/${total} (자동추출 누락 알림)`);
       }
     }
   } finally {

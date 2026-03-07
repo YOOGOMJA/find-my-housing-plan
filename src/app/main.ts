@@ -230,10 +230,10 @@ export async function runMain(): Promise<void> {
     current: 1,
     total: 1,
     percent: 100,
-    message: `조건충족 ${limitedMatched.length}건, 수동확인 ${limitedManualReviewNotices.length}건`,
+    message: `조건충족 ${limitedMatched.length}건, 자동추출 누락 ${limitedManualReviewNotices.length}건`,
   });
   summaryLines.push(`✅ 조건 충족 공고 ${limitedMatched.length}건`);
-  summaryLines.push(`🟠 수동 확인 필요 공고 ${limitedManualReviewNotices.length}건`);
+  summaryLines.push(`🟠 자동추출 누락 알림 ${limitedManualReviewNotices.length}건`);
   if (isReprocess && (matched.length > limitedMatched.length || manualReviewNotices.length > limitedManualReviewNotices.length)) {
     summaryLines.push(
       `✂️ 재처리 상한으로 제외: 조건충족 ${matched.length - limitedMatched.length}건, 수동확인 ${manualReviewNotices.length - limitedManualReviewNotices.length}건`,
@@ -257,7 +257,7 @@ export async function runMain(): Promise<void> {
     stageStartedAt = Date.now();
     if (isReprocessDryRun) {
       stageTimingsMs.notify = Date.now() - stageStartedAt;
-      summaryLines.push(`📨 Slack 알림 예정 ${limitedMatched.length}건, 수동 확인 예정 ${limitedManualReviewNotices.length}건 (dry-run)`);
+      summaryLines.push(`📨 Slack 알림 예정 ${limitedMatched.length}건, 자동추출 누락 알림 예정 ${limitedManualReviewNotices.length}건 (dry-run)`);
     } else {
       await sendSlackNotification(
         config.slackWebhookUrl,
@@ -275,7 +275,7 @@ export async function runMain(): Promise<void> {
       stageTimingsMs.notify = Date.now() - stageStartedAt;
       markNotifiedNotices(notifiedState, limitedMatched, runId);
       saveNotifiedState(notifiedState);
-      summaryLines.push(`📨 Slack 알림 전송 ${limitedMatched.length}건, 수동 확인 알림 ${limitedManualReviewNotices.length}건`);
+      summaryLines.push(`📨 Slack 알림 전송 ${limitedMatched.length}건, 자동추출 누락 알림 ${limitedManualReviewNotices.length}건`);
     }
   } else {
     summaryLines.push("📨 Slack 알림 전송 없음");

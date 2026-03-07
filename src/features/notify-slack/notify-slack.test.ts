@@ -34,10 +34,12 @@ const notice: ParsedNotice = {
     subscriptionCondition: null,
     deposit: { "26": "8,671,000원", "37": "16,231,000원" },
     rent: { "26": "145,630원", "37": "204,560원" },
+    contract: {},
     target: null,
     notes: "최장 30년 거주 가능",
     depositAmount: { "26": 867.1, "37": 1623.1 },
     rentAmount: { "26": 14.563, "37": 20.456 },
+    contractAmount: {},
     noHomeYearsRequired: null,
     subscriptionCountRequired: null,
   },
@@ -144,7 +146,7 @@ describe("formatSlackMessage", () => {
     expect(message.text).not.toContain("0㎡ 0세대");
   });
 
-  it("가격 정보가 '-'이면 비고에 미확인 사유를 추가한다", () => {
+  it("가격 정보가 모두 없으면 공고문 참조형으로 표시한다", () => {
     const message = formatSlackMessage({
       ...notice,
       conditions: {
@@ -152,11 +154,41 @@ describe("formatSlackMessage", () => {
         notes: null,
         deposit: {},
         rent: {},
+        contract: {},
       },
     }, [], []);
 
-    expect(message.text).toContain("📝 *비고*");
-    expect(message.text).toContain("가격 정보 미확인");
+    expect(message.text).toContain("공고문 참조형");
+  });
+
+  it("계약금이 있으면 계약금 포함형으로 표시한다", () => {
+    const message = formatSlackMessage({
+      ...notice,
+      conditions: {
+        ...notice.conditions,
+        deposit: {},
+        rent: {},
+        contract: { "26": "4,260,000원" },
+      },
+    }, [], []);
+
+    expect(message.text).toContain("계약금 포함형");
+    expect(message.text).toContain("계약금 4,260,000원");
+  });
+
+  it("장기전세/전세임대 계열에서 보증금만 있으면 보증금 중심형으로 표시한다", () => {
+    const message = formatSlackMessage({
+      ...notice,
+      detailTypeName: "전세임대",
+      conditions: {
+        ...notice.conditions,
+        deposit: { "26": "8,671,000원" },
+        rent: {},
+        contract: {},
+      },
+    }, [], []);
+
+    expect(message.text).toContain("보증금 중심형");
   });
 });
 
@@ -232,8 +264,8 @@ describe("formatManualReviewMessage", () => {
       reason: "no_pdf",
     });
 
-    expect(message.text).toContain("수동 확인 필요 공고");
-    expect(message.text).toContain("사유: PDF 미제공");
+    expect(message.text).toContain("LH 공고 알림");
+    expect(message.text).toContain("자동추출 누락: PDF 미제공");
   });
 
   it("PDF 파싱 실패 사유를 표시한다", () => {
@@ -242,7 +274,7 @@ describe("formatManualReviewMessage", () => {
       reason: "parse_failed",
     });
 
-    expect(message.text).toContain("사유: PDF 파싱 실패");
+    expect(message.text).toContain("자동추출 누락: PDF 파싱 실패");
   });
 });
 
