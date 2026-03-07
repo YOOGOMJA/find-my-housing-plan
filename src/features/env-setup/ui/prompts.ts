@@ -9,6 +9,19 @@ import {
   toCsv,
 } from "../lib/helpers";
 
+function isValidIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+
+  const [yearText, monthText, dayText] = value.split("-");
+  const year = Number.parseInt(yearText, 10);
+  const month = Number.parseInt(monthText, 10);
+  const day = Number.parseInt(dayText, 10);
+  const probe = new Date(year, month - 1, day);
+  return probe.getFullYear() === year && probe.getMonth() === month - 1 && probe.getDate() === day;
+}
+
 export async function askSections(): Promise<SetupSection[]> {
   const response = await prompts(
     {
@@ -141,6 +154,28 @@ export async function promptProfile(env: Record<string, string>): Promise<EnvUpd
         initial: Number.parseFloat(env.USER_CAR_ASSET ?? "0"),
         min: 0,
       },
+      {
+        type: "text",
+        name: "subscriptionDate",
+        message: "청약통장 가입일 (YYYY-MM-DD) (USER_SUBSCRIPTION_DATE)",
+        initial: env.USER_SUBSCRIPTION_DATE ?? "2020-01-01",
+        validate: (value: string) =>
+          isValidIsoDate(value) ? true : "YYYY-MM-DD 형식의 유효한 날짜를 입력해주세요. 예: 2020-01-01",
+      },
+      {
+        type: "number",
+        name: "subscriptionCount",
+        message: "청약통장 납입 횟수 (USER_SUBSCRIPTION_COUNT)",
+        initial: Number.parseInt(env.USER_SUBSCRIPTION_COUNT ?? "24", 10),
+        min: 0,
+      },
+      {
+        type: "number",
+        name: "subscriptionAmount",
+        message: "청약통장 납입 총액(만원) (USER_SUBSCRIPTION_AMOUNT)",
+        initial: Number.parseFloat(env.USER_SUBSCRIPTION_AMOUNT ?? "480"),
+        min: 0,
+      },
     ],
     { onCancel: throwOnCancel },
   );
@@ -168,6 +203,13 @@ export async function promptProfile(env: Record<string, string>): Promise<EnvUpd
     USER_INCOME: String(income),
     USER_ASSET: String(parseNumberInput(answers.asset, Number.parseFloat(env.USER_ASSET ?? "30000"))),
     USER_CAR_ASSET: String(parseNumberInput(answers.carAsset, Number.parseFloat(env.USER_CAR_ASSET ?? "0"))),
+    USER_SUBSCRIPTION_DATE: String(answers.subscriptionDate ?? env.USER_SUBSCRIPTION_DATE ?? "2020-01-01"),
+    USER_SUBSCRIPTION_COUNT: String(
+      parseNumberInput(answers.subscriptionCount, Number.parseInt(env.USER_SUBSCRIPTION_COUNT ?? "24", 10)),
+    ),
+    USER_SUBSCRIPTION_AMOUNT: String(
+      parseNumberInput(answers.subscriptionAmount, Number.parseFloat(env.USER_SUBSCRIPTION_AMOUNT ?? "480")),
+    ),
   };
 }
 
