@@ -10,6 +10,12 @@ export interface SlackMessage {
 }
 
 export type SlackNoticeBucket = "open" | "upcoming" | "unknown";
+export type ManualReviewReason = "no_pdf" | "parse_failed";
+
+export interface ManualReviewNotice {
+  notice: ParsedNotice;
+  reason: ManualReviewReason;
+}
 
 const HOUSING_TYPE_CODE_LABEL: Record<string, string> = {
   "01": "토지/분양",
@@ -64,6 +70,12 @@ function formatBucketTitle(bucket: SlackNoticeBucket): string {
 function buildBatchHeader(bucket: SlackNoticeBucket, count: number): SlackMessage {
   return {
     text: `📣 *LH 공고 알림* | *${formatBucketTitle(bucket)}* ${count}건`,
+  };
+}
+
+function buildManualReviewHeader(count: number): SlackMessage {
+  return {
+    text: `🟠 *수동 확인 필요* ${count}건 (조건 자동판정 불가)`,
   };
 }
 
@@ -339,6 +351,34 @@ export function formatSlackMessage(
   return { text: lines.join("\n") };
 }
 
+function formatManualReviewReason(reason: ManualReviewReason): string {
+  if (reason === "no_pdf") {
+    return "PDF 미제공";
+  }
+
+  return "PDF 파싱 실패";
+}
+
+export function formatManualReviewMessage(item: ManualReviewNotice): SlackMessage {
+  const { notice, reason } = item;
+  const lines = [
+    "🟠 *수동 확인 필요 공고*",
+    `*${notice.title}*`,
+    `🏷️ 공고유형: ${formatNoticeType(notice)}`,
+    `📌 접수상태: *${formatApplicationStatus(notice.applicationStatus)}*`,
+    `🗓️ 공고일: ${formatNoticeDateValue(notice.noticeDate)}`,
+    `⚠️ 사유: ${formatManualReviewReason(reason)}`,
+    `🆔 공고 ID: ${formatPanIdLink(notice.panId, notice.noticeUrl)}`,
+  ];
+
+  const noticeLink = formatNoticeLink(notice.noticeUrl);
+  if (noticeLink !== "-") {
+    lines.push(`🔗 바로가기: ${noticeLink}`);
+  }
+
+  return { text: lines.join("\n") };
+}
+
 function postToSlack(webhookUrl: string, message: SlackMessage): Promise<void> {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify(message);
@@ -380,10 +420,11 @@ export async function sendSlackNotification(
   notices: ParsedNotice[],
   user: UserProfile,
   onProgress?: ProgressReporter,
+  manualReviewNotices: ManualReviewNotice[] = [],
 ): Promise<void> {
   const grouped = groupNoticesByStatus(notices);
   const order: SlackNoticeBucket[] = ["open", "upcoming", "unknown"];
-  const total = order.reduce((sum, bucket) => sum + grouped[bucket].length, 0);
+  const total = order.reduce((sum, bucket) => sum + grouped[bucket].length, 0) + manualReviewNotices.length;
   let current = 0;
 
   const emitProgress = (message: string): void => {
@@ -423,6 +464,15 @@ export async function sendSlackNotification(
       }
       current += 1;
       emitProgress(`Slack 전송 ${current}/${total} (${formatBucketTitle(bucket)})`);
+    }
+  }
+
+  if (manualReviewNotices.length > 0) {
+    await postToSlack(webhookUrl, buildManualReviewHeader(manualReviewNotices.length));
+    for (const item of manualReviewNotices) {
+      await postToSlack(webhookUrl, formatManualReviewMessage(item));
+      current += 1;
+      emitProgress(`Slack 전송 ${current}/${total} (수동확인 필요)`);
     }
   }
 }

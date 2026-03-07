@@ -1,4 +1,4 @@
-import { formatSlackMessage, groupNoticesByStatus } from ".";
+import { formatManualReviewMessage, formatSlackMessage, groupNoticesByStatus } from ".";
 import { ParsedNotice } from "../../entities/notice";
 import { buildEligibilityChecks } from "../filter-notices";
 import { UserProfile } from "../../entities/user";
@@ -188,5 +188,26 @@ describe("groupNoticesByStatus", () => {
     expect(grouped.open.map((item: ParsedNotice) => item.panId)).toEqual(["OPEN-1"]);
     expect(grouped.upcoming.map((item: ParsedNotice) => item.panId)).toEqual(["UPCOMING-1"]);
     expect(grouped.unknown.map((item: ParsedNotice) => item.panId)).toEqual(["UNKNOWN-1"]);
+  });
+});
+
+describe("formatManualReviewMessage", () => {
+  it("PDF 미제공 사유를 표시한다", () => {
+    const message = formatManualReviewMessage({
+      notice,
+      reason: "no_pdf",
+    });
+
+    expect(message.text).toContain("수동 확인 필요 공고");
+    expect(message.text).toContain("사유: PDF 미제공");
+  });
+
+  it("PDF 파싱 실패 사유를 표시한다", () => {
+    const message = formatManualReviewMessage({
+      notice,
+      reason: "parse_failed",
+    });
+
+    expect(message.text).toContain("사유: PDF 파싱 실패");
   });
 });

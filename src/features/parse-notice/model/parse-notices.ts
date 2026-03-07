@@ -33,7 +33,10 @@ let pdfjsLib: PdfjsModule | null = null;
 export interface ParseNoticesResult {
   parsed: ParsedNotice[];
   failedPanIds: string[];
+  parseStatuses: Record<string, NoticeParseStatus>;
 }
+
+export type NoticeParseStatus = "success" | "no_pdf" | "failed";
 
 function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -326,6 +329,7 @@ export async function parseNotices(
 ): Promise<ParseNoticesResult> {
   const results: ParsedNotice[] = [];
   const failedPanIds: string[] = [];
+  const parseStatuses: Record<string, NoticeParseStatus> = {};
   const total = notices.length;
   let current = 0;
 
@@ -348,6 +352,7 @@ export async function parseNotices(
   for (const notice of notices) {
     if (!notice.pdfUrl) {
       results.push({ ...notice, conditions: emptyConditions() });
+      parseStatuses[notice.panId] = "no_pdf";
       current += 1;
       emitProgress(`공고문 파싱 ${current}/${total} (${notice.title}) - PDF 없음`);
       continue;
@@ -362,12 +367,14 @@ export async function parseNotices(
         address: addressList[idx] ?? null,
       }));
       results.push({ ...notice, supplyInfo: supplyInfoWithAddress, conditions });
+      parseStatuses[notice.panId] = "success";
       current += 1;
       emitProgress(`공고문 파싱 ${current}/${total} (${notice.title})`);
     } catch (error) {
       console.error(`[parser] ${notice.panId} 파싱 실패: ${getErrorMessage(error)}`);
       results.push({ ...notice, conditions: emptyConditions() });
       failedPanIds.push(notice.panId);
+      parseStatuses[notice.panId] = "failed";
       current += 1;
       emitProgress(`공고문 파싱 ${current}/${total} (${notice.title}) - 실패`);
     }
@@ -376,5 +383,6 @@ export async function parseNotices(
   return {
     parsed: results,
     failedPanIds,
+    parseStatuses,
   };
 }

@@ -104,6 +104,7 @@ describe("parseNotices", () => {
 
     expect(result.parsed).toHaveLength(1);
     expect(result.failedPanIds).toEqual([]);
+    expect(result.parseStatuses).toEqual({ A: "no_pdf" });
   });
 
   it("파싱 실패 시 failedPanIds에 panId를 기록한다", async () => {
@@ -111,5 +112,6 @@ describe("parseNotices", () => {
 
     expect(result.parsed).toHaveLength(1);
     expect(result.failedPanIds).toEqual(["B"]);
+    expect(result.parseStatuses).toEqual({ B: "failed" });
   });
 });

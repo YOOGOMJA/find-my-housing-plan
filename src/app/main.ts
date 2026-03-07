@@ -1,6 +1,7 @@
 import { Notice, NoticeApplicationStatus } from "../entities/notice";
 import { collectNotices } from "../features/collect-notices";
 import { filterNotices, matchesHousingPreference } from "../features/filter-notices";
+import { classifyNoticePurposes } from "../features/notice-purpose";
 import {
   loadNotifiedState,
   loadProcessedState,
@@ -10,7 +11,7 @@ import {
   saveProcessedState,
   toProcessedKeySet,
 } from "../features/notice-state";
-import { sendSlackNotification } from "../features/notify-slack";
+import { ManualReviewNotice, sendSlackNotification } from "../features/notify-slack";
 import { parseNotices } from "../features/parse-notice";
 import { loadConfig, loadEnv } from "../shared/config";
 import { createProgressReporter } from "../shared/lib";
@@ -45,7 +46,7 @@ export async function runMain(): Promise<void> {
   const processedKeys = toProcessedKeySet(processedState);
   const progress = createProgressReporter();
 
-  console.log("[1/4] 공고 수집 중...");
+  console.log("[1/6] 공고 수집 중...");
   const notices = await collectNotices(config.apiKey, processedKeys, progress.report);
   progress.flush();
   console.log(`  처리 대상 공고 ${notices.length}건`);
@@ -57,8 +58,19 @@ export async function runMain(): Promise<void> {
     return;
   }
 
-  console.log("[2/5] 선호조건 사전 필터링 중...");
-  const candidates = notices.filter((notice) => matchesHousingPreference(notice, config.user));
+  console.log("[2/6] 주거 목적 공고 분류 중...");
+  const purposeDecisions = await classifyNoticePurposes(notices);
+  const residentialNotices = purposeDecisions
+    .filter((decision) => decision.purpose === "residential")
+    .map((decision) => decision.notice);
+  const nonResidentialCount = purposeDecisions.filter((decision) => decision.purpose === "non_residential").length;
+  const unknownPurposeCount = purposeDecisions.filter((decision) => decision.purpose === "unknown").length;
+  console.log(
+    `  주거 공고 ${residentialNotices.length}건, 비주거 제외 ${nonResidentialCount}건, 분류불가 제외 ${unknownPurposeCount}건`,
+  );
+
+  console.log("[3/6] 선호조건 사전 필터링 중...");
+  const candidates = residentialNotices.filter((notice) => matchesHousingPreference(notice, config.user));
   console.log(`  선호조건 후보 ${candidates.length}건`);
 
   if (candidates.length === 0) {
@@ -70,13 +82,22 @@ export async function runMain(): Promise<void> {
     return;
   }
 
-  console.log("[3/5] 공고문 파싱 중...");
-  const { parsed, failedPanIds } = await parseNotices(candidates, config.anthropicKey, progress.report);
+  console.log("[4/6] 공고문 파싱 중...");
+  const { parsed, failedPanIds, parseStatuses } = await parseNotices(candidates, config.anthropicKey, progress.report);
   progress.flush();
 
-  console.log("[4/5] 조건 필터링 중...");
-  const matched = filterNotices(parsed, config.user);
+  const parsedSuccess = parsed.filter((notice) => parseStatuses[notice.panId] === "success");
+  const manualReviewNotices: ManualReviewNotice[] = parsed
+    .filter((notice) => parseStatuses[notice.panId] !== "success")
+    .map((notice) => ({
+      notice,
+      reason: parseStatuses[notice.panId] === "no_pdf" ? "no_pdf" : "parse_failed",
+    }));
+
+  console.log("[5/6] 조건 필터링 중...");
+  const matched = filterNotices(parsedSuccess, config.user);
   console.log(`  조건 충족 공고 ${matched.length}건`);
+  console.log(`  수동 확인 필요 공고 ${manualReviewNotices.length}건`);
 
   const statusCounts: Record<NoticeApplicationStatus, number> = {
     upcoming: 0,
@@ -93,9 +114,15 @@ export async function runMain(): Promise<void> {
     `  접수상태(접수중/접수예정/마감/미확인): ${statusCounts.open}/${statusCounts.upcoming}/${statusCounts.closed}/${statusCounts.unknown}`,
   );
 
-  if (matched.length > 0) {
-    console.log("[5/5] Slack 알림 전송 중...");
-    await sendSlackNotification(config.slackWebhookUrl, matched, config.user, progress.report);
+  if (matched.length > 0 || manualReviewNotices.length > 0) {
+    console.log("[6/6] Slack 알림 전송 중...");
+    await sendSlackNotification(
+      config.slackWebhookUrl,
+      matched,
+      config.user,
+      progress.report,
+      manualReviewNotices,
+    );
     progress.flush();
     markNotifiedNotices(notifiedState, matched, runId);
     saveNotifiedState(notifiedState);
