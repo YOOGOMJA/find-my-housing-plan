@@ -299,6 +299,9 @@ export function filterNotices(notices: ParsedNotice[], user: UserProfile): Parse
       matchesHousingPreference(notice, user) &&
       matchesPrice(notice, user) &&
       matchesNoticeEligibility(notice, user),
-    // matchesDistrict는 소프트 필터 → 제외가 아닌 메시지에서 강조
+    // matchesDistrict는 소프트 필터 — 하드 필터로 제외하지 않음.
+    // TODO: 선호 구 포함 공고를 상단 정렬하는 기능 미구현.
+    //       현재는 formatSlackMessage에서 "[선호지역]" 강조 표시만 적용됨.
+    //       @see https://github.com/YOOGOMJA/find-my-housing-plan/issues/20
   );
 }
