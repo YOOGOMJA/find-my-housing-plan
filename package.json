@@ -1,0 +1,28 @@
+{
+  "name": "find-my-housing-plan",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YOOGOMJA/find-my-housing-plan.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/YOOGOMJA/find-my-housing-plan/issues"
+  },
+  "homepage": "https://github.com/YOOGOMJA/find-my-housing-plan#readme",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
+    "pdfjs-dist": "^5.5.207"
+  }
+}
