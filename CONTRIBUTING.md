@@ -36,16 +36,16 @@ docs(#125): AGENTS.md 응답 규칙 정리
 - 네이밍 형식:
 
 ```text
-<prefix>/#<issue_number>/<summary>
+<prefix>/issue-<issue_number>/<summary>
 ```
 
 - `prefix`는 커밋 `type`과 동일하게 사용한다 (`feat`, `fix`, `docs`, `chore` 등).
 - 예시:
 
 ```text
-feat/#3/add-filter-logic
-fix/#12/income-boundary-error
-docs/#5/update-contributing
+feat/issue-3/add-filter-logic
+fix/issue-12/income-boundary-error
+docs/issue-5/update-contributing
 ```
 
 - `main` 브랜치에 직접 커밋하지 않는다. 반드시 PR을 통해 병합한다.
@@ -64,7 +64,7 @@ docs/#5/update-contributing
 
 1. 이슈 생성
 2. 구현 계획 수립(필요 시 `docs/plans/`에 문서화)
-3. 이슈 번호로 브랜치 생성: `git checkout -b <prefix>/#<issue_number>/<summary>`
+3. 이슈 번호로 브랜치 생성: `git checkout -b <prefix>/issue-<issue_number>/<summary>`
 4. 이슈 번호를 scope로 커밋
 5. PR 생성 후 이슈 연결
 
