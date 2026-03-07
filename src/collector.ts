@@ -390,28 +390,24 @@ async function fetchSupplyInfo(apiKey: string, item: Record<string, unknown>, pa
 
 export async function collectNotices(apiKey: string, seenIds: Set<string>): Promise<Notice[]> {
   const rawItems = await fetchNoticeList(apiKey);
-  const targets = rawItems.filter((item) => {
-    const panId = parsePanId(item);
-    const phase = inferListStatusPhase(toString(item.PAN_SS));
-    return shouldCollectBySeen(seenIds, panId, phase);
-  });
-
   const notices: Notice[] = [];
 
-  for (const item of targets) {
+  for (const item of rawItems) {
     const panId = parsePanId(item);
     if (!panId) {
       continue;
     }
 
-    const [detail, supplyInfo] = await Promise.all([
-      fetchDetailInfo(apiKey, item, panId),
-      fetchSupplyInfo(apiKey, item, panId),
-    ]);
+    const detail = await fetchDetailInfo(apiKey, item, panId);
+    if (!shouldCollectBySeen(seenIds, panId, detail.applicationStatus)) {
+      continue;
+    }
 
     if (detail.applicationStatus === "closed") {
       continue;
     }
+
+    const supplyInfo = await fetchSupplyInfo(apiKey, item, panId);
 
     notices.push({
       panId,

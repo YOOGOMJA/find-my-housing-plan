@@ -44,18 +44,28 @@ type HousingPreferenceNotice = Pick<Notice, "region" | "housingType" | "supplyIn
 
 function parseAssetLimit(text: string): number | null {
   const eokMatch = text.match(/([\d.]+)\s*억/);
+  const manwonMatch = text.match(/([\d,]+(?:\.\d+)?)\s*만\s*원/);
+
+  let total = 0;
+  let matched = false;
+
   if (eokMatch) {
-    const value = Number.parseFloat(eokMatch[1]) * 10000;
-    return Number.isFinite(value) ? value : null;
+    const eok = Number.parseFloat(eokMatch[1]);
+    if (Number.isFinite(eok)) {
+      total += eok * 10000;
+      matched = true;
+    }
   }
 
-  const manwonMatch = text.match(/([\d,]+)\s*만원/);
   if (manwonMatch) {
-    const value = Number.parseFloat(manwonMatch[1].replace(/,/g, ""));
-    return Number.isFinite(value) ? value : null;
+    const manwon = Number.parseFloat(manwonMatch[1].replace(/,/g, ""));
+    if (Number.isFinite(manwon)) {
+      total += manwon;
+      matched = true;
+    }
   }
 
-  return null;
+  return matched ? total : null;
 }
 
 function parseIncomeLimit(text: string): number | null {

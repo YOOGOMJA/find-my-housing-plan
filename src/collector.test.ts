@@ -97,4 +97,9 @@ describe("shouldCollectBySeen", () => {
     const seen = new Set(["A001"]);
     expect(shouldCollectBySeen(seen, "A001", "upcoming")).toBe(false);
   });
+
+  it("upcoming으로 본 공고가 open으로 전이되면 다시 수집한다", () => {
+    const seen = new Set([toSeenKey("A001", "upcoming")]);
+    expect(shouldCollectBySeen(seen, "A001", "open")).toBe(true);
+  });
 });

@@ -130,6 +130,16 @@ describe("matchesNoticeEligibility", () => {
 
     expect(matchesNoticeEligibility(notice, baseUser)).toBe(false);
   });
+
+  it("자산 기준이 억/만원 혼합 표기면 합산해서 판단한다", () => {
+    const notice = {
+      ...baseNotice,
+      conditions: { ...baseNotice.conditions, assetLimit: "총자산 3억 6,100만원 이하" },
+    };
+
+    expect(matchesNoticeEligibility(notice, { ...baseUser, asset: 35000 })).toBe(true);
+    expect(matchesNoticeEligibility(notice, { ...baseUser, asset: 36200 })).toBe(false);
+  });
 });
 
 describe("filterNotices", () => {
