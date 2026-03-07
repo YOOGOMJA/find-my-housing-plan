@@ -122,6 +122,29 @@ describe("createProgressReporter", () => {
     expect(/전체 \[[^\]]+\] \d+% [|\/\\-]/.test(output)).toBe(true);
   });
 
+  it("TTY 환경에서 스피너가 1초마다 회전한다", () => {
+    jest.useFakeTimers();
+    const writes: string[] = [];
+    const writeSpy = jest.spyOn(process.stdout, "write").mockImplementation((chunk: string | Uint8Array) => {
+      writes.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+      return true;
+    });
+
+    withTty(true, () => {
+      const reporter = createProgressReporter();
+      reporter.report({ phase: "collect", current: 1, total: 2, percent: 50, message: "수집 1/2" });
+      jest.advanceTimersByTime(1000);
+      reporter.flush();
+    });
+
+    writeSpy.mockRestore();
+    jest.useRealTimers();
+
+    const output = writes.join("");
+    expect(output).toContain("% |");
+    expect(output).toContain("% /");
+  });
+
   it("마지막 이벤트가 완료 상태면 complete에서 중복 출력하지 않는다", () => {
     const writes: string[] = [];
     const writeSpy = jest.spyOn(process.stdout, "write").mockImplementation((chunk: string | Uint8Array) => {

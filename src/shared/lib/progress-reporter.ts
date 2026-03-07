@@ -17,7 +17,9 @@ export function createProgressReporter(): { report: ProgressReporter; flush: () 
   let hasRendered = false;
   let lastEvent: ProgressEvent | null = null;
   let lastOverallPercent: number | null = null;
+  let lastCurrentLine: string | null = null;
   let spinnerIndex = 0;
+  let spinnerTimer: ReturnType<typeof setInterval> | null = null;
 
   const clampPercent = (value: number): number => {
     if (!Number.isFinite(value)) {
@@ -50,6 +52,9 @@ export function createProgressReporter(): { report: ProgressReporter; flush: () 
       return;
     }
 
+    lastOverallPercent = clampPercent(overallPercent);
+    lastCurrentLine = currentLine;
+
     if (hasRendered) {
       process.stdout.write(`\u001B[1A\r\u001B[2K${overallLine}\n\r\u001B[2K${currentLine}`);
       return;
@@ -57,13 +62,35 @@ export function createProgressReporter(): { report: ProgressReporter; flush: () 
 
     process.stdout.write(`${overallLine}\n${currentLine}`);
     hasRendered = true;
-    lastOverallPercent = clampPercent(overallPercent);
+  };
+
+  const stopSpinnerTimer = (): void => {
+    if (!spinnerTimer) {
+      return;
+    }
+    clearInterval(spinnerTimer);
+    spinnerTimer = null;
+  };
+
+  const startSpinnerTimer = (): void => {
+    if (!isTty || spinnerTimer) {
+      return;
+    }
+
+    spinnerTimer = setInterval(() => {
+      if (!hasRendered || lastOverallPercent === null || !lastCurrentLine) {
+        return;
+      }
+      spinnerIndex = (spinnerIndex + 1) % spinnerFrames.length;
+      renderLines(lastOverallPercent, lastCurrentLine);
+    }, 1000);
   };
 
   const flush = (): void => {
     if (!isTty || !hasRendered) {
       return;
     }
+    stopSpinnerTimer();
     process.stdout.write("\n");
     hasRendered = false;
   };
@@ -76,9 +103,7 @@ export function createProgressReporter(): { report: ProgressReporter; flush: () 
   const report = (event: ProgressEvent): void => {
     const currentLine = formatCurrentLine(event);
     renderLines(toOverallPercent(event), currentLine);
-    if (isTty) {
-      spinnerIndex = (spinnerIndex + 1) % spinnerFrames.length;
-    }
+    startSpinnerTimer();
     lastEvent = event;
   };
 
