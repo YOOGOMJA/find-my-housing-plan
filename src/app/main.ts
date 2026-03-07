@@ -46,23 +46,26 @@ export async function runMain(): Promise<void> {
   const runId = new Date().toISOString();
   const processedKeys = toProcessedKeySet(processedState);
   const progress = createProgressReporter();
-  const stepHeader = (step: number, total: number, title: string): string =>
-    chalk.bold.cyan(`[${step}/${total}] ${title}`);
-  const label = (text: string): string => chalk.dim(`  ${text}`);
+  const summaryLines: string[] = [];
+  let statusSummary = "접수상태(접수중/접수예정/마감/미확인): 0/0/0/0";
+  let completionMessage = chalk.bold.green("✅ 완료.");
+  let warningMessage: string | null = null;
 
-  console.log(stepHeader(1, 6, "공고 수집 중..."));
   const notices = await collectNotices(config.apiKey, processedKeys, progress.report);
-  progress.flush();
-  console.log(label(`📦 처리 대상 공고 ${chalk.bold.white(`${notices.length}건`)}`));
+  summaryLines.push(`📦 처리 대상 공고 ${notices.length}건`);
 
   if (notices.length === 0) {
     progress.complete();
     progress.flush();
-    console.log(chalk.yellow("⚠ 마감 전 미처리 공고가 없습니다."));
+    completionMessage = chalk.yellow("⚠ 마감 전 미처리 공고가 없습니다.");
+    console.log(completionMessage);
+    console.log(chalk.bold("요약"));
+    for (const line of summaryLines) {
+      console.log(chalk.dim(`  ${line}`));
+    }
     return;
   }
 
-  console.log(stepHeader(2, 6, "주거 목적 공고 분류 중..."));
   progress.report({
     phase: "classify",
     current: 0,
@@ -83,16 +86,8 @@ export async function runMain(): Promise<void> {
     percent: 100,
     message: `주거 ${residentialNotices.length}건, 비주거 ${nonResidentialCount}건, 분류불가 ${unknownPurposeCount}건`,
   });
-  progress.flush();
-  console.log(
-    label(
-      `🏠 주거 ${chalk.green(`${residentialNotices.length}건`)}, 비주거 제외 ${chalk.gray(
-        `${nonResidentialCount}건`,
-      )}, 분류불가 제외 ${chalk.yellow(`${unknownPurposeCount}건`)}`,
-    ),
-  );
+  summaryLines.push(`🏠 주거 공고 ${residentialNotices.length}건, 비주거 제외 ${nonResidentialCount}건, 분류불가 제외 ${unknownPurposeCount}건`);
 
-  console.log(stepHeader(3, 6, "선호조건 사전 필터링 중..."));
   progress.report({
     phase: "prefilter",
     current: 0,
@@ -108,21 +103,23 @@ export async function runMain(): Promise<void> {
     percent: 100,
     message: `선호조건 후보 ${candidates.length}건`,
   });
-  progress.flush();
-  console.log(label(`🎯 선호조건 후보 ${chalk.bold.magenta(`${candidates.length}건`)}`));
+  summaryLines.push(`🎯 선호조건 후보 ${candidates.length}건`);
 
   if (candidates.length === 0) {
     markProcessedNotices(processedState, notices);
     saveProcessedState(processedState);
     progress.complete();
     progress.flush();
-    console.log(chalk.yellow("⚠ 선호조건에 맞는 공고가 없습니다."));
+    completionMessage = chalk.yellow("⚠ 선호조건에 맞는 공고가 없습니다.");
+    console.log(completionMessage);
+    console.log(chalk.bold("요약"));
+    for (const line of summaryLines) {
+      console.log(chalk.dim(`  ${line}`));
+    }
     return;
   }
 
-  console.log(stepHeader(4, 6, "공고문 파싱 중..."));
   const { parsed, failedPanIds, parseStatuses } = await parseNotices(candidates, config.anthropicKey, progress.report);
-  progress.flush();
 
   const parsedSuccess = parsed.filter((notice) => parseStatuses[notice.panId] === "success");
   const manualReviewNotices: ManualReviewNotice[] = parsed
@@ -132,7 +129,6 @@ export async function runMain(): Promise<void> {
       reason: parseStatuses[notice.panId] === "no_pdf" ? "no_pdf" : "parse_failed",
     }));
 
-  console.log(stepHeader(5, 6, "조건 필터링 중..."));
   progress.report({
     phase: "filter",
     current: 0,
@@ -148,9 +144,8 @@ export async function runMain(): Promise<void> {
     percent: 100,
     message: `조건충족 ${matched.length}건, 수동확인 ${manualReviewNotices.length}건`,
   });
-  progress.flush();
-  console.log(label(`✅ 조건 충족 공고 ${chalk.bold.green(`${matched.length}건`)}`));
-  console.log(label(`🟠 수동 확인 필요 공고 ${chalk.bold.yellow(`${manualReviewNotices.length}건`)}`));
+  summaryLines.push(`✅ 조건 충족 공고 ${matched.length}건`);
+  summaryLines.push(`🟠 수동 확인 필요 공고 ${manualReviewNotices.length}건`);
 
   const statusCounts: Record<NoticeApplicationStatus, number> = {
     upcoming: 0,
@@ -163,16 +158,9 @@ export async function runMain(): Promise<void> {
     statusCounts[normalizeApplicationStatus(notice.applicationStatus)] += 1;
   }
 
-  console.log(
-    label(
-      `📌 접수상태(접수중/접수예정/마감/미확인): ${chalk.green(statusCounts.open.toString())}/${chalk.yellow(
-        statusCounts.upcoming.toString(),
-      )}/${chalk.gray(statusCounts.closed.toString())}/${chalk.white(statusCounts.unknown.toString())}`,
-    ),
-  );
+  statusSummary = `📌 접수상태(접수중/접수예정/마감/미확인): ${statusCounts.open}/${statusCounts.upcoming}/${statusCounts.closed}/${statusCounts.unknown}`;
 
   if (matched.length > 0 || manualReviewNotices.length > 0) {
-    console.log(stepHeader(6, 6, "Slack 알림 전송 중..."));
     await sendSlackNotification(
       config.slackWebhookUrl,
       matched,
@@ -181,20 +169,30 @@ export async function runMain(): Promise<void> {
       progress.report,
       manualReviewNotices,
     );
-    progress.flush();
     markNotifiedNotices(notifiedState, matched, runId);
     saveNotifiedState(notifiedState);
+    summaryLines.push(`📨 Slack 알림 전송 ${matched.length}건, 수동 확인 알림 ${manualReviewNotices.length}건`);
+  } else {
+    summaryLines.push("📨 Slack 알림 전송 없음");
   }
 
   const failedPanIdSet = new Set(failedPanIds);
   const processedTargets = selectProcessedNotices(notices, candidates, failedPanIdSet);
   if (failedPanIdSet.size > 0) {
-    console.warn(chalk.yellow(`⚠ 파싱 실패 ${failedPanIdSet.size}건은 processed 상태로 기록하지 않습니다.`));
+    warningMessage = `⚠ 파싱 실패 ${failedPanIdSet.size}건은 processed 상태로 기록하지 않습니다.`;
   }
   markProcessedNotices(processedState, processedTargets);
   saveProcessedState(processedState);
 
   progress.complete();
   progress.flush();
-  console.log(chalk.bold.green("✅ 완료."));
+  console.log(completionMessage);
+  console.log(chalk.bold("요약"));
+  for (const line of summaryLines) {
+    console.log(chalk.dim(`  ${line}`));
+  }
+  console.log(chalk.dim(`  ${statusSummary}`));
+  if (warningMessage) {
+    console.log(chalk.yellow(`  ${warningMessage}`));
+  }
 }

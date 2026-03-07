@@ -17,7 +17,7 @@ export function createProgressReporter(): { report: ProgressReporter; flush: () 
   let hasRendered = false;
   let lastEvent: ProgressEvent | null = null;
   let lastOverallPercent: number | null = null;
-  let lastCurrentLine: string | null = null;
+  let lastStatusLine: string | null = null;
   let spinnerIndex = 0;
   let spinnerTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -39,28 +39,28 @@ export function createProgressReporter(): { report: ProgressReporter; flush: () 
     return ((safeIndex + clampPercent(event.percent) / 100) / phaseOrder.length) * 100;
   };
 
-  const renderLines = (overallPercent: number, currentLine: string): void => {
+  const renderLine = (overallPercent: number, statusLine: string): void => {
     const spinner = spinnerFrames[spinnerIndex % spinnerFrames.length];
-    const overallLine = isTty
-      ? `전체 [${makeBar(overallPercent)}] ${clampPercent(overallPercent)}% ${spinner}`
-      : `전체 [${makeBar(overallPercent)}] ${clampPercent(overallPercent)}%`;
+    const combinedLine = isTty
+      ? `${statusLine} | 전체 [${makeBar(overallPercent)}] ${clampPercent(overallPercent)}% ${spinner}`
+      : `${statusLine} | 전체 [${makeBar(overallPercent)}] ${clampPercent(overallPercent)}%`;
 
     if (!isTty) {
-      console.log(overallLine);
-      console.log(currentLine);
+      console.log(combinedLine);
       lastOverallPercent = clampPercent(overallPercent);
+      lastStatusLine = statusLine;
       return;
     }
 
     lastOverallPercent = clampPercent(overallPercent);
-    lastCurrentLine = currentLine;
+    lastStatusLine = statusLine;
 
     if (hasRendered) {
-      process.stdout.write(`\u001B[1A\r\u001B[2K${overallLine}\n\r\u001B[2K${currentLine}`);
+      process.stdout.write(`\r\u001B[2K${combinedLine}`);
       return;
     }
 
-    process.stdout.write(`${overallLine}\n${currentLine}`);
+    process.stdout.write(combinedLine);
     hasRendered = true;
   };
 
@@ -78,11 +78,11 @@ export function createProgressReporter(): { report: ProgressReporter; flush: () 
     }
 
     spinnerTimer = setInterval(() => {
-      if (!hasRendered || lastOverallPercent === null || !lastCurrentLine) {
+      if (!hasRendered || lastOverallPercent === null || !lastStatusLine) {
         return;
       }
       spinnerIndex = (spinnerIndex + 1) % spinnerFrames.length;
-      renderLines(lastOverallPercent, lastCurrentLine);
+      renderLine(lastOverallPercent, lastStatusLine);
     }, 1000);
   };
 
@@ -97,12 +97,12 @@ export function createProgressReporter(): { report: ProgressReporter; flush: () 
 
   const formatCurrentLine = (event: ProgressEvent): string => {
     const percent = clampPercent(event.percent);
-    return `현재 [${phaseLabel[event.phase]}] ${event.message} (${event.current}/${event.total}, ${percent}%)`;
+    return `상태 [${phaseLabel[event.phase]}] ${event.message} (${event.current}/${event.total}, ${percent}%)`;
   };
 
   const report = (event: ProgressEvent): void => {
     const currentLine = formatCurrentLine(event);
-    renderLines(toOverallPercent(event), currentLine);
+    renderLine(toOverallPercent(event), currentLine);
     startSpinnerTimer();
     lastEvent = event;
   };
@@ -113,9 +113,9 @@ export function createProgressReporter(): { report: ProgressReporter; flush: () 
     }
 
     const currentLine = lastEvent
-      ? `현재 [${phaseLabel[lastEvent.phase]}] ${lastEvent.message} (${lastEvent.total}/${lastEvent.total}, 100%)`
-      : "현재 [완료] 파이프라인 완료 (100%)";
-    renderLines(100, currentLine);
+      ? `상태 [${phaseLabel[lastEvent.phase]}] ${lastEvent.message} (${lastEvent.total}/${lastEvent.total}, 100%)`
+      : "상태 [완료] 파이프라인 완료 (100%)";
+    renderLine(100, currentLine);
   };
 
   return { report, flush, complete };
