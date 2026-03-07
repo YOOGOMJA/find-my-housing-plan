@@ -19,7 +19,12 @@ export interface ManualReviewNotice {
   reason: ManualReviewReason;
 }
 
-export type SlackHistoryMessageType = "batch_header" | "notice" | "manual_review_header" | "manual_review_notice";
+export type SlackHistoryMessageType =
+  | "batch_header"
+  | "filter_summary"
+  | "notice"
+  | "manual_review_header"
+  | "manual_review_notice";
 
 export interface SlackHistoryRecord {
   timestamp: string;
@@ -43,6 +48,12 @@ interface SlackHistoryRecordInput {
   httpStatus: number | null;
   errorMessage: string | null;
   nowIso?: string;
+}
+
+interface SendSlackNotificationOptions {
+  keepAlive?: boolean;
+  includeFilterSummary?: boolean;
+  isReprocess?: boolean;
 }
 
 const HOUSING_TYPE_CODE_LABEL: Record<string, string> = {
@@ -95,9 +106,10 @@ function formatBucketTitle(bucket: SlackNoticeBucket): string {
   return "❔ 상태확인필요";
 }
 
-function buildBatchHeader(bucket: SlackNoticeBucket, count: number): SlackMessage {
+function buildBatchHeader(bucket: SlackNoticeBucket, count: number, isReprocess: boolean): SlackMessage {
+  const prefix = isReprocess ? "📣 *LH 공고 알림 (재처리)*" : "📣 *LH 공고 알림*";
   return {
-    text: `📣 *LH 공고 알림* | *${formatBucketTitle(bucket)}* ${count}건`,
+    text: `${prefix} | *${formatBucketTitle(bucket)}* ${count}건`,
   };
 }
 
@@ -274,6 +286,34 @@ function formatNotes(notes: string | null): string {
   return lines.join("\n");
 }
 
+function formatAmountLimit(value: number): string {
+  if (value <= 0) {
+    return "제한 없음";
+  }
+
+  return `${value.toLocaleString("ko-KR")}만원 이하`;
+}
+
+function buildFilterSummaryMessage(user: UserProfile, isReprocess: boolean): SlackMessage {
+  const regions = user.regions.length > 0 ? user.regions.join(", ") : "제한 없음";
+  const districts = user.districts.length > 0 ? user.districts.join(", ") : "제한 없음";
+  const housingTypes = user.housingTypes.length > 0 ? user.housingTypes.join(", ") : "제한 없음";
+  const areaRange = `${user.minArea}㎡ ~ ${user.maxArea}㎡`;
+  const prefix = isReprocess ? "🔁 *재처리 모드* 적용 필터" : "🎯 *적용 필터*";
+
+  return {
+    text: [
+      `${prefix}`,
+      `• 지역: ${regions}`,
+      `• 선호구: ${districts}`,
+      `• 공고유형 코드: ${housingTypes}`,
+      `• 면적: ${areaRange}`,
+      `• 보증금: ${formatAmountLimit(user.maxDeposit)}`,
+      `• 월임대료: ${formatAmountLimit(user.maxRent)}`,
+    ].join("\n"),
+  };
+}
+
 export function groupNoticesByStatus(notices: ParsedNotice[]): Record<SlackNoticeBucket, ParsedNotice[]> {
   const grouped: Record<SlackNoticeBucket, ParsedNotice[]> = {
     open: [],
@@ -307,11 +347,18 @@ export function formatSlackMessage(
   preferredDistricts: string[],
 ): SlackMessage {
   const supplyHighlights = extractSupplyHighlights(notice.conditions.notes);
+  let hasMissingPrice = false;
+
+  const formatAreaLabel = (area: number): string => (area > 0 ? `${area}㎡` : "면적 미상");
+  const formatCountLabel = (count: number): string => (count > 0 ? `${count}세대` : "세대수 미상");
 
   const supplyLines = notice.supplyInfo
     .map((item) => {
       const deposit = notice.conditions.deposit[item.type] ?? "-";
       const rent = notice.conditions.rent[item.type] ?? "-";
+      if (deposit === "-" || rent === "-") {
+        hasMissingPrice = true;
+      }
       const preferred = preferredDistricts.length > 0 && item.address
         ? preferredDistricts.some((d) => item.address!.includes(d))
         : false;
@@ -319,9 +366,9 @@ export function formatSlackMessage(
 
       const addressLine = item.address
         ? `  ${item.address}${prefixMark}`
-        : `  ${item.type}형${prefixMark}`;
+        : `  ${item.type || "단지 정보 미상"}${prefixMark}`;
 
-      const priceLine = `    ${item.area}㎡ ${item.count}세대 | 보증금 ${deposit} / 월임대료 ${rent}`;
+      const priceLine = `    ${formatAreaLabel(item.area)} ${formatCountLabel(item.count)} | 보증금 ${deposit} / 월임대료 ${rent}`;
 
       let mapLine = "";
       if (item.address) {
@@ -365,8 +412,17 @@ export function formatSlackMessage(
 
   lines.push("", "📦 *공급 정보*", supplySection);
 
+  const noteChunks: string[] = [];
   if (notice.conditions.notes) {
-    lines.push("", "📝 *비고*", formatNotes(notice.conditions.notes));
+    noteChunks.push(notice.conditions.notes);
+  }
+  if (hasMissingPrice) {
+    noteChunks.push("가격 정보 미확인: 원천 API 미제공 또는 PDF/본문 정형 추출 불가");
+  }
+
+  const mergedNotes = noteChunks.length > 0 ? noteChunks.join("\n") : null;
+  if (mergedNotes) {
+    lines.push("", "📝 *비고*", formatNotes(mergedNotes));
   }
 
   lines.push("", `🆔 공고 ID: ${formatPanIdLink(notice.panId, notice.noticeUrl)}`);
@@ -506,14 +562,17 @@ export async function sendSlackNotification(
   runId: string,
   onProgress?: ProgressReporter,
   manualReviewNotices: ManualReviewNotice[] = [],
-  options?: { keepAlive?: boolean },
+  options?: SendSlackNotificationOptions,
 ): Promise<void> {
   const keepAlive = options?.keepAlive ?? true;
+  const includeFilterSummary = options?.includeFilterSummary ?? true;
+  const isReprocess = options?.isReprocess ?? false;
   const agent = keepAlive ? new https.Agent({ keepAlive: true }) : undefined;
   const grouped = groupNoticesByStatus(notices);
   const order: SlackNoticeBucket[] = ["open", "upcoming", "unknown"];
   const total = order.reduce((sum, bucket) => sum + grouped[bucket].length, 0) + manualReviewNotices.length;
   let current = 0;
+  let filterSummarySent = false;
 
   const emitProgress = (message: string): void => {
     if (!onProgress) {
@@ -539,7 +598,7 @@ export async function sendSlackNotification(
         continue;
       }
 
-      const batchHeader = buildBatchHeader(bucket, bucketNotices.length);
+      const batchHeader = buildBatchHeader(bucket, bucketNotices.length, isReprocess);
       try {
         const result = await postToSlack(webhookUrl, batchHeader, agent);
         tryAppendSlackHistory(
@@ -570,6 +629,42 @@ export async function sendSlackNotification(
           }),
         );
         throw error;
+      }
+
+      if (includeFilterSummary && !filterSummarySent) {
+        const filterSummary = buildFilterSummaryMessage(user, isReprocess);
+        try {
+          const result = await postToSlack(webhookUrl, filterSummary, agent);
+          tryAppendSlackHistory(
+            createSlackHistoryRecord({
+              runId,
+              panId: null,
+              messageType: "filter_summary",
+              applicationStatus: null,
+              payloadText: filterSummary.text,
+              status: "success",
+              httpStatus: result.statusCode,
+              errorMessage: null,
+            }),
+          );
+        } catch (error) {
+          const statusCode = error instanceof SlackPostError ? error.statusCode : null;
+          const message = error instanceof Error ? error.message : String(error);
+          tryAppendSlackHistory(
+            createSlackHistoryRecord({
+              runId,
+              panId: null,
+              messageType: "filter_summary",
+              applicationStatus: null,
+              payloadText: filterSummary.text,
+              status: "failed",
+              httpStatus: statusCode,
+              errorMessage: message,
+            }),
+          );
+          throw error;
+        }
+        filterSummarySent = true;
       }
 
       if (!onProgress) {
@@ -620,6 +715,42 @@ export async function sendSlackNotification(
     }
 
     if (manualReviewNotices.length > 0) {
+      if (includeFilterSummary && !filterSummarySent) {
+        const filterSummary = buildFilterSummaryMessage(user, isReprocess);
+        try {
+          const result = await postToSlack(webhookUrl, filterSummary, agent);
+          tryAppendSlackHistory(
+            createSlackHistoryRecord({
+              runId,
+              panId: null,
+              messageType: "filter_summary",
+              applicationStatus: null,
+              payloadText: filterSummary.text,
+              status: "success",
+              httpStatus: result.statusCode,
+              errorMessage: null,
+            }),
+          );
+        } catch (error) {
+          const statusCode = error instanceof SlackPostError ? error.statusCode : null;
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          tryAppendSlackHistory(
+            createSlackHistoryRecord({
+              runId,
+              panId: null,
+              messageType: "filter_summary",
+              applicationStatus: null,
+              payloadText: filterSummary.text,
+              status: "failed",
+              httpStatus: statusCode,
+              errorMessage,
+            }),
+          );
+          throw error;
+        }
+        filterSummarySent = true;
+      }
+
       const manualReviewHeader = buildManualReviewHeader(manualReviewNotices.length);
       try {
         const result = await postToSlack(webhookUrl, manualReviewHeader, agent);

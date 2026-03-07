@@ -14,6 +14,12 @@ export interface AppConfig {
     httpKeepAlive: boolean;
     timingSummary: boolean;
   };
+  reprocess: {
+    enabled: boolean;
+    dryRun: boolean;
+    lookbackMonths: number;
+    maxNotifications: number;
+  };
 }
 
 function requireEnv(key: string): string {
@@ -132,12 +138,23 @@ export function loadConfig(): AppConfig {
     timingSummary: parseBooleanValue(optionalEnv("PERF_TIMING_SUMMARY", "true"), "PERF_TIMING_SUMMARY"),
   };
 
+  const reprocess = {
+    enabled: parseBooleanValue(optionalEnv("REPROCESS_ENABLED", "false"), "REPROCESS_ENABLED"),
+    dryRun: parseBooleanValue(optionalEnv("REPROCESS_DRY_RUN", "false"), "REPROCESS_DRY_RUN"),
+    lookbackMonths: parsePositiveIntValue(optionalEnv("REPROCESS_LOOKBACK_MONTHS", "6"), "REPROCESS_LOOKBACK_MONTHS"),
+    maxNotifications: parsePositiveIntValue(
+      optionalEnv("REPROCESS_MAX_NOTIFICATIONS", "50"),
+      "REPROCESS_MAX_NOTIFICATIONS",
+    ),
+  };
+
   return {
     apiKey,
     anthropicKey,
     slackWebhookUrl,
     user,
     performance,
+    reprocess,
   };
 }
 

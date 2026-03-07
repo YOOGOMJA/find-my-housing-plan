@@ -51,6 +51,10 @@ describe("loadConfig", () => {
     expect(config.performance.parseConcurrency).toBe(2);
     expect(config.performance.httpKeepAlive).toBe(true);
     expect(config.performance.timingSummary).toBe(true);
+    expect(config.reprocess.enabled).toBe(false);
+    expect(config.reprocess.dryRun).toBe(false);
+    expect(config.reprocess.lookbackMonths).toBe(6);
+    expect(config.reprocess.maxNotifications).toBe(50);
   });
 
   it("필수 환경변수 누락 시 오류를 던진다", () => {
@@ -120,11 +124,28 @@ describe("loadConfig", () => {
       expect(config.performance.parseConcurrency).toBe(2);
       expect(config.performance.httpKeepAlive).toBe(true);
       expect(config.performance.timingSummary).toBe(true);
+      expect(config.reprocess.enabled).toBe(false);
+      expect(config.reprocess.dryRun).toBe(false);
+      expect(config.reprocess.lookbackMonths).toBe(6);
+      expect(config.reprocess.maxNotifications).toBe(50);
     });
 
     it("COLLECT_CONCURRENCY가 0 이하이면 오류를 던진다", () => {
       process.env.COLLECT_CONCURRENCY = "0";
       expect(() => loadConfig()).toThrow("COLLECT_CONCURRENCY");
+    });
+
+    it("재처리 관련 env를 읽는다", () => {
+      process.env.REPROCESS_ENABLED = "true";
+      process.env.REPROCESS_DRY_RUN = "true";
+      process.env.REPROCESS_LOOKBACK_MONTHS = "3";
+      process.env.REPROCESS_MAX_NOTIFICATIONS = "20";
+
+      const config = loadConfig();
+      expect(config.reprocess.enabled).toBe(true);
+      expect(config.reprocess.dryRun).toBe(true);
+      expect(config.reprocess.lookbackMonths).toBe(3);
+      expect(config.reprocess.maxNotifications).toBe(20);
     });
   });
 });

@@ -20,7 +20,10 @@ export interface SupplyItem {
   type: string;
   area: number;
   count: number;
-  address?: string | null;   // 신규: 단지 주소 (API/PDF에서 제공 시)
+  address?: string | null;   // 단지 주소 (API/PDF에서 제공 시)
+  areaSource?: "DDO_AR" | "HTY_DS_NM" | "UNKNOWN";
+  countSource?: "NOW_HSH_CNT" | "GNR_SPL_RMNO" | "UNKNOWN";
+  rawTypeText?: string;
 }
 
 export interface ParsedConditions {
