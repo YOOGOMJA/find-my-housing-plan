@@ -47,14 +47,31 @@ export async function runMain(): Promise<void> {
   const processedKeys = toProcessedKeySet(processedState);
   const progress = createProgressReporter();
   const summaryLines: string[] = [];
+  const stageTimingsMs: Record<string, number> = {
+    collect: 0,
+    classify: 0,
+    prefilter: 0,
+    parse: 0,
+    filter: 0,
+    notify: 0,
+    total: 0,
+  };
+  const startedAt = Date.now();
+  const formatDuration = (ms: number): string => `${(ms / 1000).toFixed(1)}s`;
   let statusSummary = "접수상태(접수중/접수예정/마감/미확인): 0/0/0/0";
   let completionMessage = chalk.bold.green("✅ 완료.");
   let warningMessage: string | null = null;
 
-  const notices = await collectNotices(config.apiKey, processedKeys, progress.report);
+  let stageStartedAt = Date.now();
+  const notices = await collectNotices(config.apiKey, processedKeys, progress.report, {
+    concurrency: config.performance.collectConcurrency,
+    keepAlive: config.performance.httpKeepAlive,
+  });
+  stageTimingsMs.collect = Date.now() - stageStartedAt;
   summaryLines.push(`📦 처리 대상 공고 ${notices.length}건`);
 
   if (notices.length === 0) {
+    stageTimingsMs.total = Date.now() - startedAt;
     progress.complete();
     progress.flush();
     completionMessage = chalk.yellow("⚠ 마감 전 미처리 공고가 없습니다.");
@@ -62,6 +79,13 @@ export async function runMain(): Promise<void> {
     console.log(chalk.bold("요약"));
     for (const line of summaryLines) {
       console.log(chalk.dim(`  ${line}`));
+    }
+    if (config.performance.timingSummary) {
+      console.log(
+        chalk.dim(
+          `  ⏱ 소요시간(총/수집/분류/사전필터/파싱/조건필터/알림): ${formatDuration(stageTimingsMs.total)}/${formatDuration(stageTimingsMs.collect)}/${formatDuration(stageTimingsMs.classify)}/${formatDuration(stageTimingsMs.prefilter)}/${formatDuration(stageTimingsMs.parse)}/${formatDuration(stageTimingsMs.filter)}/${formatDuration(stageTimingsMs.notify)}`,
+        ),
+      );
     }
     return;
   }
@@ -73,7 +97,12 @@ export async function runMain(): Promise<void> {
     percent: 0,
     message: `주거 목적 분류 시작 (대상 ${notices.length}건)`,
   });
-  const purposeDecisions = await classifyNoticePurposes(notices);
+  stageStartedAt = Date.now();
+  const purposeDecisions = await classifyNoticePurposes(notices, {
+    concurrency: config.performance.classifyConcurrency,
+    keepAlive: config.performance.httpKeepAlive,
+  });
+  stageTimingsMs.classify = Date.now() - stageStartedAt;
   const residentialNotices = purposeDecisions
     .filter((decision) => decision.purpose === "residential")
     .map((decision) => decision.notice);
@@ -95,7 +124,9 @@ export async function runMain(): Promise<void> {
     percent: 0,
     message: `선호조건 사전 필터 시작 (대상 ${residentialNotices.length}건)`,
   });
+  stageStartedAt = Date.now();
   const candidates = residentialNotices.filter((notice) => matchesHousingPreference(notice, config.user));
+  stageTimingsMs.prefilter = Date.now() - stageStartedAt;
   progress.report({
     phase: "prefilter",
     current: 1,
@@ -106,6 +137,7 @@ export async function runMain(): Promise<void> {
   summaryLines.push(`🎯 선호조건 후보 ${candidates.length}건`);
 
   if (candidates.length === 0) {
+    stageTimingsMs.total = Date.now() - startedAt;
     markProcessedNotices(processedState, notices);
     saveProcessedState(processedState);
     progress.complete();
@@ -116,10 +148,22 @@ export async function runMain(): Promise<void> {
     for (const line of summaryLines) {
       console.log(chalk.dim(`  ${line}`));
     }
+    if (config.performance.timingSummary) {
+      console.log(
+        chalk.dim(
+          `  ⏱ 소요시간(총/수집/분류/사전필터/파싱/조건필터/알림): ${formatDuration(stageTimingsMs.total)}/${formatDuration(stageTimingsMs.collect)}/${formatDuration(stageTimingsMs.classify)}/${formatDuration(stageTimingsMs.prefilter)}/${formatDuration(stageTimingsMs.parse)}/${formatDuration(stageTimingsMs.filter)}/${formatDuration(stageTimingsMs.notify)}`,
+        ),
+      );
+    }
     return;
   }
 
-  const { parsed, failedPanIds, parseStatuses } = await parseNotices(candidates, config.anthropicKey, progress.report);
+  stageStartedAt = Date.now();
+  const { parsed, failedPanIds, parseStatuses } = await parseNotices(candidates, config.anthropicKey, progress.report, {
+    concurrency: config.performance.parseConcurrency,
+    keepAlive: config.performance.httpKeepAlive,
+  });
+  stageTimingsMs.parse = Date.now() - stageStartedAt;
 
   const parsedSuccess = parsed.filter((notice) => parseStatuses[notice.panId] === "success");
   const manualReviewNotices: ManualReviewNotice[] = parsed
@@ -136,7 +180,9 @@ export async function runMain(): Promise<void> {
     percent: 0,
     message: `조건 필터링 시작 (대상 ${parsedSuccess.length}건)`,
   });
+  stageStartedAt = Date.now();
   const matched = filterNotices(parsedSuccess, config.user);
+  stageTimingsMs.filter = Date.now() - stageStartedAt;
   progress.report({
     phase: "filter",
     current: 1,
@@ -161,6 +207,7 @@ export async function runMain(): Promise<void> {
   statusSummary = `📌 접수상태(접수중/접수예정/마감/미확인): ${statusCounts.open}/${statusCounts.upcoming}/${statusCounts.closed}/${statusCounts.unknown}`;
 
   if (matched.length > 0 || manualReviewNotices.length > 0) {
+    stageStartedAt = Date.now();
     await sendSlackNotification(
       config.slackWebhookUrl,
       matched,
@@ -168,7 +215,9 @@ export async function runMain(): Promise<void> {
       runId,
       progress.report,
       manualReviewNotices,
+      { keepAlive: config.performance.httpKeepAlive },
     );
+    stageTimingsMs.notify = Date.now() - stageStartedAt;
     markNotifiedNotices(notifiedState, matched, runId);
     saveNotifiedState(notifiedState);
     summaryLines.push(`📨 Slack 알림 전송 ${matched.length}건, 수동 확인 알림 ${manualReviewNotices.length}건`);
@@ -186,12 +235,20 @@ export async function runMain(): Promise<void> {
 
   progress.complete();
   progress.flush();
+  stageTimingsMs.total = Date.now() - startedAt;
   console.log(completionMessage);
   console.log(chalk.bold("요약"));
   for (const line of summaryLines) {
     console.log(chalk.dim(`  ${line}`));
   }
   console.log(chalk.dim(`  ${statusSummary}`));
+  if (config.performance.timingSummary) {
+    console.log(
+      chalk.dim(
+        `  ⏱ 소요시간(총/수집/분류/사전필터/파싱/조건필터/알림): ${formatDuration(stageTimingsMs.total)}/${formatDuration(stageTimingsMs.collect)}/${formatDuration(stageTimingsMs.classify)}/${formatDuration(stageTimingsMs.prefilter)}/${formatDuration(stageTimingsMs.parse)}/${formatDuration(stageTimingsMs.filter)}/${formatDuration(stageTimingsMs.notify)}`,
+      ),
+    );
+  }
   if (warningMessage) {
     console.log(chalk.yellow(`  ${warningMessage}`));
   }

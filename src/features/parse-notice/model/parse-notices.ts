@@ -3,6 +3,7 @@ import * as https from "https";
 import Anthropic from "@anthropic-ai/sdk";
 import { Notice, ParsedConditions, ParsedNotice } from "../../../entities/notice";
 import { ProgressReporter } from "../../../shared/types";
+import { mapWithConcurrency } from "../../../shared/lib";
 
 type JsonObject = Record<string, unknown>;
 
@@ -66,13 +67,19 @@ function getErrorMessage(error: unknown): string {
   return String(error);
 }
 
-function downloadBuffer(url: string, maxRedirects = 5): Promise<Buffer> {
+function downloadBuffer(
+  url: string,
+  maxRedirects = 5,
+  httpAgent?: http.Agent,
+  httpsAgent?: https.Agent,
+): Promise<Buffer> {
   const request = (targetUrl: string, redirectsLeft: number): Promise<Buffer> => {
     return new Promise((resolve, reject) => {
       const client = targetUrl.startsWith("https") ? https : http;
+      const agent = targetUrl.startsWith("https") ? httpsAgent : httpAgent;
 
       client
-        .get(targetUrl, { headers: { "User-Agent": "Mozilla/5.0" } }, (res) => {
+        .get(targetUrl, { headers: { "User-Agent": "Mozilla/5.0" }, agent }, (res) => {
           const status = res.statusCode ?? 0;
           const location = res.headers.location;
 
@@ -326,12 +333,17 @@ export async function parseNotices(
   notices: Notice[],
   anthropicKey: string,
   onProgress?: ProgressReporter,
+  options?: { concurrency?: number; keepAlive?: boolean },
 ): Promise<ParseNoticesResult> {
   const results: ParsedNotice[] = [];
   const failedPanIds: string[] = [];
   const parseStatuses: Record<string, NoticeParseStatus> = {};
   const total = notices.length;
   let current = 0;
+  const concurrency = Math.max(1, Math.floor(options?.concurrency ?? 2));
+  const keepAlive = options?.keepAlive ?? true;
+  const httpAgent = keepAlive ? new http.Agent({ keepAlive: true }) : undefined;
+  const httpsAgent = keepAlive ? new https.Agent({ keepAlive: true }) : undefined;
 
   const emitProgress = (message: string): void => {
     if (!onProgress) {
@@ -349,35 +361,55 @@ export async function parseNotices(
     });
   };
 
-  for (const notice of notices) {
-    if (!notice.pdfUrl) {
-      results.push({ ...notice, conditions: emptyConditions() });
-      parseStatuses[notice.panId] = "no_pdf";
-      current += 1;
-      emitProgress(`공고문 파싱 ${current}/${total} (${notice.title}) - PDF 없음`);
-      continue;
-    }
+  try {
+    const parsedItems = await mapWithConcurrency(notices, concurrency, async (notice) => {
+      if (!notice.pdfUrl) {
+        current += 1;
+        emitProgress(`공고문 파싱 ${current}/${total} (${notice.title}) - PDF 없음`);
+        return {
+          notice: { ...notice, conditions: emptyConditions() } as ParsedNotice,
+          status: "no_pdf" as NoticeParseStatus,
+          failedPanId: null as string | null,
+        };
+      }
 
-    try {
-      const buffer = await downloadBuffer(notice.pdfUrl);
-      const text = await extractTextFromPdf(buffer);
-      const { conditions, addressList } = await parseWithClaude(anthropicKey, text, notice.title);
-      const supplyInfoWithAddress = notice.supplyInfo.map((item, idx) => ({
-        ...item,
-        address: addressList[idx] ?? null,
-      }));
-      results.push({ ...notice, supplyInfo: supplyInfoWithAddress, conditions });
-      parseStatuses[notice.panId] = "success";
-      current += 1;
-      emitProgress(`공고문 파싱 ${current}/${total} (${notice.title})`);
-    } catch (error) {
-      console.error(`[parser] ${notice.panId} 파싱 실패: ${getErrorMessage(error)}`);
-      results.push({ ...notice, conditions: emptyConditions() });
-      failedPanIds.push(notice.panId);
-      parseStatuses[notice.panId] = "failed";
-      current += 1;
-      emitProgress(`공고문 파싱 ${current}/${total} (${notice.title}) - 실패`);
+      try {
+        const buffer = await downloadBuffer(notice.pdfUrl, 5, httpAgent, httpsAgent);
+        const text = await extractTextFromPdf(buffer);
+        const { conditions, addressList } = await parseWithClaude(anthropicKey, text, notice.title);
+        const supplyInfoWithAddress = notice.supplyInfo.map((item, idx) => ({
+          ...item,
+          address: addressList[idx] ?? null,
+        }));
+        current += 1;
+        emitProgress(`공고문 파싱 ${current}/${total} (${notice.title})`);
+        return {
+          notice: { ...notice, supplyInfo: supplyInfoWithAddress, conditions } as ParsedNotice,
+          status: "success" as NoticeParseStatus,
+          failedPanId: null as string | null,
+        };
+      } catch (error) {
+        console.error(`[parser] ${notice.panId} 파싱 실패: ${getErrorMessage(error)}`);
+        current += 1;
+        emitProgress(`공고문 파싱 ${current}/${total} (${notice.title}) - 실패`);
+        return {
+          notice: { ...notice, conditions: emptyConditions() } as ParsedNotice,
+          status: "failed" as NoticeParseStatus,
+          failedPanId: notice.panId,
+        };
+      }
+    });
+
+    for (const item of parsedItems) {
+      results.push(item.notice);
+      parseStatuses[item.notice.panId] = item.status;
+      if (item.failedPanId) {
+        failedPanIds.push(item.failedPanId);
+      }
     }
+  } finally {
+    httpAgent?.destroy();
+    httpsAgent?.destroy();
   }
 
   return {

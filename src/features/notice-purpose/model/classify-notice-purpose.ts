@@ -1,6 +1,7 @@
 import * as http from "http";
 import * as https from "https";
 import { Notice } from "../../../entities/notice";
+import { mapWithConcurrency } from "../../../shared/lib";
 
 interface PdfPage {
   getTextContent(): Promise<{ items: Array<{ str?: unknown }> }>;
@@ -99,13 +100,19 @@ async function getPdfjs(): Promise<PdfjsModule> {
   return pdfjsLib;
 }
 
-function downloadBuffer(url: string, maxRedirects = 5): Promise<Buffer> {
+function downloadBuffer(
+  url: string,
+  maxRedirects = 5,
+  httpAgent?: http.Agent,
+  httpsAgent?: https.Agent,
+): Promise<Buffer> {
   const request = (targetUrl: string, redirectsLeft: number): Promise<Buffer> => {
     return new Promise((resolve, reject) => {
       const client = targetUrl.startsWith("https") ? https : http;
+      const agent = targetUrl.startsWith("https") ? httpsAgent : httpAgent;
 
       client
-        .get(targetUrl, { headers: { "User-Agent": "Mozilla/5.0" } }, (res) => {
+        .get(targetUrl, { headers: { "User-Agent": "Mozilla/5.0" }, agent }, (res) => {
           const status = res.statusCode ?? 0;
           const location = res.headers.location;
 
@@ -244,6 +251,13 @@ export interface NoticePurposeDecision {
 }
 
 export async function classifyNoticePurpose(notice: Notice): Promise<NoticePurposeDecision> {
+  return classifyNoticePurposeWithOptions(notice);
+}
+
+async function classifyNoticePurposeWithOptions(
+  notice: Notice,
+  options?: { httpAgent?: http.Agent; httpsAgent?: https.Agent },
+): Promise<NoticePurposeDecision> {
   const metadataResult = classifyByMetadata(notice);
   if (metadataResult.purpose !== "unknown") {
     return {
@@ -264,7 +278,7 @@ export async function classifyNoticePurpose(notice: Notice): Promise<NoticePurpo
   }
 
   try {
-    const buffer = await downloadBuffer(notice.pdfUrl);
+    const buffer = await downloadBuffer(notice.pdfUrl, 5, options?.httpAgent, options?.httpsAgent);
     const text = await extractTextFromPdf(buffer);
     const pdfResult = classifyByText(text);
     return {
@@ -283,12 +297,28 @@ export async function classifyNoticePurpose(notice: Notice): Promise<NoticePurpo
   }
 }
 
-export async function classifyNoticePurposes(notices: Notice[]): Promise<NoticePurposeDecision[]> {
-  const decisions: NoticePurposeDecision[] = [];
+export async function classifyNoticePurposes(
+  notices: Notice[],
+  options?: { concurrency?: number; keepAlive?: boolean },
+): Promise<NoticePurposeDecision[]> {
+  return classifyNoticePurposesWithOptions(notices, options);
+}
 
-  for (const notice of notices) {
-    decisions.push(await classifyNoticePurpose(notice));
+export async function classifyNoticePurposesWithOptions(
+  notices: Notice[],
+  options?: { concurrency?: number; keepAlive?: boolean },
+): Promise<NoticePurposeDecision[]> {
+  const concurrency = Math.max(1, Math.floor(options?.concurrency ?? 2));
+  const keepAlive = options?.keepAlive ?? true;
+  const httpAgent = keepAlive ? new http.Agent({ keepAlive: true }) : undefined;
+  const httpsAgent = keepAlive ? new https.Agent({ keepAlive: true }) : undefined;
+
+  try {
+    return await mapWithConcurrency(notices, concurrency, (notice) =>
+      classifyNoticePurposeWithOptions(notice, { httpAgent, httpsAgent }),
+    );
+  } finally {
+    httpAgent?.destroy();
+    httpsAgent?.destroy();
   }
-
-  return decisions;
 }

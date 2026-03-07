@@ -1,6 +1,7 @@
 import * as https from "https";
 import { Notice, NoticeApplicationStatus, SupplyItem } from "../../../entities/notice";
 import { ProgressReporter } from "../../../shared/types";
+import { mapWithConcurrency } from "../../../shared/lib";
 import { toProcessedKey } from "../../notice-state";
 
 const LIST_URL = "https://apis.data.go.kr/B552555/lhLeaseNoticeInfo1/lhLeaseNoticeInfo1";
@@ -68,6 +69,31 @@ function get(url: string): Promise<{ status: number; body: unknown }> {
   return new Promise((resolve, reject) => {
     https
       .get(url, (res) => {
+        const chunks: Buffer[] = [];
+
+        res.on("data", (chunk: Buffer | string) => {
+          chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+        });
+
+        res.on("end", () => {
+          const status = res.statusCode ?? 0;
+          const text = Buffer.concat(chunks).toString("utf-8");
+
+          try {
+            resolve({ status, body: JSON.parse(text) as unknown });
+          } catch {
+            resolve({ status, body: text });
+          }
+        });
+      })
+      .on("error", reject);
+  });
+}
+
+function getWithAgent(url: string, agent: https.Agent | undefined): Promise<{ status: number; body: unknown }> {
+  return new Promise((resolve, reject) => {
+    https
+      .get(url, { agent }, (res) => {
         const chunks: Buffer[] = [];
 
         res.on("data", (chunk: Buffer | string) => {
@@ -328,10 +354,11 @@ async function fetchDetailInfo(
   apiKey: string,
   item: Record<string, unknown>,
   panId: string,
+  agent?: https.Agent,
 ): Promise<NoticeDetailInfo> {
   const listPhase = inferListStatusPhase(toString(item.PAN_SS));
   const url = buildApiUrl(DETAIL_URL, apiKey, buildDetailParams(item, panId));
-  const { status, body } = await get(url);
+  const { status, body } = await getWithAgent(url, agent);
   assertSuccessStatus(status, url, body);
 
   if (!Array.isArray(body)) {
@@ -411,9 +438,14 @@ async function fetchDetailInfo(
   };
 }
 
-async function fetchSupplyInfo(apiKey: string, item: Record<string, unknown>, panId: string): Promise<SupplyItem[]> {
+async function fetchSupplyInfo(
+  apiKey: string,
+  item: Record<string, unknown>,
+  panId: string,
+  agent?: https.Agent,
+): Promise<SupplyItem[]> {
   const url = buildApiUrl(SUPPLY_URL, apiKey, buildDetailParams(item, panId));
-  const { status, body } = await get(url);
+  const { status, body } = await getWithAgent(url, agent);
   assertSuccessStatus(status, url, body);
   const items = extractItems(body);
 
@@ -428,72 +460,85 @@ export async function collectNotices(
   apiKey: string,
   processedKeys: Set<string>,
   onProgress?: ProgressReporter,
+  options?: { concurrency?: number; keepAlive?: boolean },
 ): Promise<Notice[]> {
   const rawItems = await fetchNoticeList(apiKey, onProgress);
-  const notices: Notice[] = [];
   const total = rawItems.length;
+  const concurrency = Math.max(1, Math.floor(options?.concurrency ?? 4));
+  const keepAlive = options?.keepAlive ?? true;
+  const agent = keepAlive ? new https.Agent({ keepAlive: true }) : undefined;
   let skippedByProcessed = 0;
   let skippedByClosed = 0;
   let examined = 0;
+  let collected = 0;
 
   emitCollectProgress(onProgress, 0, Math.max(total, 1), `상세 조회 준비 (대상 ${total}건)`);
 
-  for (const item of rawItems) {
-    const panId = parsePanId(item);
-    if (!panId) {
-      continue;
+  const processed = await (async () => {
+    try {
+      return await mapWithConcurrency(rawItems, concurrency, async (item) => {
+        const panId = parsePanId(item);
+        if (!panId) {
+          return null;
+        }
+
+        const detail = await fetchDetailInfo(apiKey, item, panId, agent);
+        if (!shouldCollectByProcessed(processedKeys, panId, detail.applicationStatus)) {
+          skippedByProcessed += 1;
+          examined += 1;
+          emitCollectProgress(
+            onProgress,
+            examined,
+            Math.max(total, 1),
+            `상세/공급 조회 ${examined}/${total} (기처리 제외 ${skippedByProcessed})`,
+          );
+          return null;
+        }
+
+        if (detail.applicationStatus === "closed") {
+          skippedByClosed += 1;
+          examined += 1;
+          emitCollectProgress(
+            onProgress,
+            examined,
+            Math.max(total, 1),
+            `상세/공급 조회 ${examined}/${total} (마감 제외 ${skippedByClosed})`,
+          );
+          return null;
+        }
+
+        const supplyInfo = await fetchSupplyInfo(apiKey, item, panId, agent);
+        const notice: Notice = {
+          panId,
+          title: toString(item.PAN_NM) || toString(item.LCC_NT_NM),
+          region: toString(item.CNP_CD) || toString(item.CNP_CD_NM),
+          housingType: toString(item.UPP_AIS_TP_CD),
+          upperTypeName: toString(item.UPP_AIS_TP_NM) || null,
+          detailTypeName: toString(item.AIS_TP_CD_NM) || null,
+          noticeDate: toString(item.PAN_DT) || toString(item.PAN_NT_ST_DT),
+          noticeUrl: toString(item.DTL_URL) || toString(item.DTL_URL_MOB) || null,
+          applicationStartDate: detail.applicationStartDate,
+          applicationEndDate: detail.applicationEndDate,
+          applicationStatus: detail.applicationStatus,
+          pdfUrl: detail.pdfUrl,
+          supplyInfo,
+        };
+        examined += 1;
+        collected += 1;
+        emitCollectProgress(
+          onProgress,
+          examined,
+          Math.max(total, 1),
+          `상세/공급 조회 ${examined}/${total} (수집 ${collected}건)`,
+        );
+        return notice;
+      });
+    } finally {
+      agent?.destroy();
     }
+  })();
 
-    const detail = await fetchDetailInfo(apiKey, item, panId);
-    if (!shouldCollectByProcessed(processedKeys, panId, detail.applicationStatus)) {
-      skippedByProcessed += 1;
-      examined += 1;
-      emitCollectProgress(
-        onProgress,
-        examined,
-        Math.max(total, 1),
-        `상세/공급 조회 ${examined}/${total} (기처리 제외 ${skippedByProcessed})`,
-      );
-      continue;
-    }
-
-    if (detail.applicationStatus === "closed") {
-      skippedByClosed += 1;
-      examined += 1;
-      emitCollectProgress(
-        onProgress,
-        examined,
-        Math.max(total, 1),
-        `상세/공급 조회 ${examined}/${total} (마감 제외 ${skippedByClosed})`,
-      );
-      continue;
-    }
-
-    const supplyInfo = await fetchSupplyInfo(apiKey, item, panId);
-
-    notices.push({
-      panId,
-      title: toString(item.PAN_NM) || toString(item.LCC_NT_NM),
-      region: toString(item.CNP_CD) || toString(item.CNP_CD_NM),
-      housingType: toString(item.UPP_AIS_TP_CD),
-      upperTypeName: toString(item.UPP_AIS_TP_NM) || null,
-      detailTypeName: toString(item.AIS_TP_CD_NM) || null,
-      noticeDate: toString(item.PAN_DT) || toString(item.PAN_NT_ST_DT),
-      noticeUrl: toString(item.DTL_URL) || toString(item.DTL_URL_MOB) || null,
-      applicationStartDate: detail.applicationStartDate,
-      applicationEndDate: detail.applicationEndDate,
-      applicationStatus: detail.applicationStatus,
-      pdfUrl: detail.pdfUrl,
-      supplyInfo,
-    });
-    examined += 1;
-    emitCollectProgress(
-      onProgress,
-      examined,
-      Math.max(total, 1),
-      `상세/공급 조회 ${examined}/${total} (수집 ${notices.length}건)`,
-    );
-  }
+  const notices = processed.filter((notice): notice is Notice => notice !== null);
 
   emitCollectProgress(
     onProgress,
