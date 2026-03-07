@@ -68,6 +68,7 @@ describe("loadConfig", () => {
       process.env.ANTHROPIC_API_KEY = "test-anthropic-key";
       process.env.SLACK_WEBHOOK_URL = "https://hooks.slack.com/test";
       process.env.USER_AGE = "30";
+      process.env.USER_MARITAL_STATUS = "single";
     });
 
     it("USER_DISTRICTS 미설정 시 빈 배열", () => {
