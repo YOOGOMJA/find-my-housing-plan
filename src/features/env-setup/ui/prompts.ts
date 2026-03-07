@@ -265,6 +265,39 @@ export async function promptFilter(env: Record<string, string>): Promise<EnvUpda
         initial: Number.parseInt(env.USER_MIN_BUILD_YEAR ?? "0", 10),
         min: 0,
       },
+      {
+        type: "text",
+        name: "districts",
+        message: "선호 구 단위 지역 (쉼표 구분, 없으면 엔터) (USER_DISTRICTS)",
+        initial: env.USER_DISTRICTS ?? "",
+      },
+      {
+        type: "number",
+        name: "maxDeposit",
+        message: "보증금 최대 (만원, 0이면 필터 안 함) (USER_MAX_DEPOSIT)",
+        initial: Number.parseFloat(env.USER_MAX_DEPOSIT ?? "0"),
+        min: 0,
+      },
+      {
+        type: "number",
+        name: "maxRent",
+        message: "월임대료 최대 (만원, 0이면 필터 안 함) (USER_MAX_RENT)",
+        initial: Number.parseFloat(env.USER_MAX_RENT ?? "0"),
+        min: 0,
+      },
+      {
+        type: "select",
+        name: "applicantGroup",
+        message: "특별공급 신청 트랙 (USER_APPLICANT_GROUP)",
+        choices: [
+          { title: "일반 (general)", value: "general" },
+          { title: "청년 (youth)", value: "youth" },
+          { title: "신혼부부 (newlywed)", value: "newlywed" },
+          { title: "신생아 (newborn)", value: "newborn" },
+          { title: "다자녀 (multiChild)", value: "multiChild" },
+        ],
+        initial: 0,
+      },
     ],
     { onCancel: throwOnCancel },
   );
@@ -292,5 +325,9 @@ export async function promptFilter(env: Record<string, string>): Promise<EnvUpda
         : (env.USER_HOUSING_TYPES ?? "06,13").split(","),
     ),
     USER_MIN_BUILD_YEAR: String(parseNumberInput(detail.minBuildYear, Number.parseInt(env.USER_MIN_BUILD_YEAR ?? "0", 10))),
+    USER_DISTRICTS: String(detail.districts ?? ""),
+    USER_MAX_DEPOSIT: String(detail.maxDeposit ?? 0),
+    USER_MAX_RENT: String(detail.maxRent ?? 0),
+    USER_APPLICANT_GROUP: String(detail.applicantGroup ?? "general"),
   };
 }
