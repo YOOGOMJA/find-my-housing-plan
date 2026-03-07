@@ -47,6 +47,25 @@ describe("createProgressReporter", () => {
     expect(percents[percents.length - 1]).toBe(100);
   });
 
+  it("6단계 기준으로 collect 완료 시 전체 퍼센트가 17%로 계산된다", () => {
+    const writes: string[] = [];
+    const writeSpy = jest.spyOn(process.stdout, "write").mockImplementation((chunk: string | Uint8Array) => {
+      writes.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+      return true;
+    });
+
+    withTty(true, () => {
+      const reporter = createProgressReporter();
+      reporter.report({ phase: "collect", current: 10, total: 10, percent: 100, message: "수집 완료" });
+      reporter.flush();
+    });
+
+    writeSpy.mockRestore();
+    const output = writes.join("");
+    expect(output).toContain("전체 [");
+    expect(output).toContain("17%");
+  });
+
   it("non-TTY 환경에서 전체/현재 2줄 로그를 출력한다", () => {
     const logSpy = jest.spyOn(console, "log").mockImplementation(() => undefined);
 
@@ -64,7 +83,7 @@ describe("createProgressReporter", () => {
     expect(logged.some((line) => /현재 \[[|\/\\-] /.test(line))).toBe(false);
   });
 
-  it("TTY 환경에서 현재 라인에 스피너를 표시한다", () => {
+  it("TTY 환경에서 현재 라인에는 스피너를 표시하지 않는다", () => {
     const writes: string[] = [];
     const writeSpy = jest.spyOn(process.stdout, "write").mockImplementation((chunk: string | Uint8Array) => {
       writes.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
@@ -80,7 +99,8 @@ describe("createProgressReporter", () => {
     writeSpy.mockRestore();
 
     const output = writes.join("");
-    expect(/현재 \[[|\/\\-] 수집\]/.test(output)).toBe(true);
+    expect(output).toContain("현재 [수집] 수집 1/2 (1/2, 50%)");
+    expect(/현재 \[[|\/\\-] /.test(output)).toBe(false);
   });
 
   it("TTY 환경에서 전체 바 라인 끝에 스피너를 표시한다", () => {

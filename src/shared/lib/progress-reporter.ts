@@ -4,15 +4,19 @@ export function createProgressReporter(): { report: ProgressReporter; flush: () 
   const isTty = Boolean(process.stdout.isTTY);
   const phaseLabel: Record<ProgressPhase, string> = {
     collect: "수집",
+    classify: "분류",
+    prefilter: "사전필터",
     parse: "파싱",
+    filter: "조건필터",
     notify: "전송",
   };
-  const phaseOrder: ProgressPhase[] = ["collect", "parse", "notify"];
+  const phaseOrder: ProgressPhase[] = ["collect", "classify", "prefilter", "parse", "filter", "notify"];
   const spinnerFrames = ["|", "/", "-", "\\"];
   const barWidth = 20;
 
   let hasRendered = false;
   let lastEvent: ProgressEvent | null = null;
+  let lastOverallPercent: number | null = null;
   let spinnerIndex = 0;
 
   const clampPercent = (value: number): number => {
@@ -42,6 +46,7 @@ export function createProgressReporter(): { report: ProgressReporter; flush: () 
     if (!isTty) {
       console.log(overallLine);
       console.log(currentLine);
+      lastOverallPercent = clampPercent(overallPercent);
       return;
     }
 
@@ -52,6 +57,7 @@ export function createProgressReporter(): { report: ProgressReporter; flush: () 
 
     process.stdout.write(`${overallLine}\n${currentLine}`);
     hasRendered = true;
+    lastOverallPercent = clampPercent(overallPercent);
   };
 
   const flush = (): void => {
@@ -64,19 +70,7 @@ export function createProgressReporter(): { report: ProgressReporter; flush: () 
 
   const formatCurrentLine = (event: ProgressEvent): string => {
     const percent = clampPercent(event.percent);
-    if (!isTty) {
-      return `현재 [${phaseLabel[event.phase]}] ${event.message} (${event.current}/${event.total}, ${percent}%)`;
-    }
-
-    const frame = spinnerFrames[spinnerIndex % spinnerFrames.length];
-    return `현재 [${frame} ${phaseLabel[event.phase]}] ${event.message} (${event.current}/${event.total}, ${percent}%)`;
-  };
-
-  const isCompletedEvent = (event: ProgressEvent): boolean => {
-    if (clampPercent(event.percent) >= 100) {
-      return true;
-    }
-    return event.total > 0 && event.current >= event.total;
+    return `현재 [${phaseLabel[event.phase]}] ${event.message} (${event.current}/${event.total}, ${percent}%)`;
   };
 
   const report = (event: ProgressEvent): void => {
@@ -89,12 +83,12 @@ export function createProgressReporter(): { report: ProgressReporter; flush: () 
   };
 
   const complete = (): void => {
-    if (lastEvent && isCompletedEvent(lastEvent)) {
+    if (lastOverallPercent === 100) {
       return;
     }
 
     const currentLine = lastEvent
-      ? `현재 [${phaseLabel[lastEvent.phase]}] ${lastEvent.message} (100%)`
+      ? `현재 [${phaseLabel[lastEvent.phase]}] ${lastEvent.message} (${lastEvent.total}/${lastEvent.total}, 100%)`
       : "현재 [완료] 파이프라인 완료 (100%)";
     renderLines(100, currentLine);
   };

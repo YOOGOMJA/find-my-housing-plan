@@ -1,4 +1,4 @@
-export type ProgressPhase = "collect" | "parse" | "notify";
+export type ProgressPhase = "collect" | "classify" | "prefilter" | "parse" | "filter" | "notify";
 
 export interface ProgressEvent {
   phase: ProgressPhase;
