@@ -1,5 +1,7 @@
 import * as https from "https";
-import { NoticeApplicationStatus, ParsedNotice } from "../../../entities/notice";
+import { EligibilityCheck, NoticeApplicationStatus, ParsedNotice } from "../../../entities/notice";
+import { UserProfile } from "../../../entities/user";
+import { buildEligibilityChecks } from "../../filter-notices";
 import { ProgressReporter } from "../../../shared/types";
 
 export interface SlackMessage {
@@ -259,13 +261,37 @@ export function groupNoticesByStatus(notices: ParsedNotice[]): Record<SlackNotic
   return grouped;
 }
 
-export function formatSlackMessage(notice: ParsedNotice): SlackMessage {
+export function formatSlackMessage(
+  notice: ParsedNotice,
+  eligibilityChecks: EligibilityCheck[],
+  preferredDistricts: string[],
+): SlackMessage {
   const supplyHighlights = extractSupplyHighlights(notice.conditions.notes);
+
   const supplyLines = notice.supplyInfo
     .map((item) => {
       const deposit = notice.conditions.deposit[item.type] ?? "-";
       const rent = notice.conditions.rent[item.type] ?? "-";
-      return `  • *${item.type}형* (${item.area}㎡) ${item.count}세대 | 보증금 ${deposit} / 월임대료 ${rent}`;
+      const preferred = preferredDistricts.length > 0 && item.address
+        ? preferredDistricts.some((d) => item.address!.includes(d))
+        : false;
+      const prefixMark = preferred ? " [선호지역]" : "";
+
+      const addressLine = item.address
+        ? `  ${item.address}${prefixMark}`
+        : `  ${item.type}형${prefixMark}`;
+
+      const priceLine = `    ${item.area}㎡ ${item.count}세대 | 보증금 ${deposit} / 월임대료 ${rent}`;
+
+      let mapLine = "";
+      if (item.address) {
+        const encoded = encodeURIComponent(item.address);
+        const naver = `https://map.naver.com/v5/search/${encoded}`;
+        const google = `https://www.google.com/maps/search/${encoded}`;
+        mapLine = `\n    <${naver}|네이버지도> | <${google}|구글지도>`;
+      }
+
+      return `${addressLine}\n${priceLine}${mapLine}`;
     })
     .join("\n");
 
@@ -286,25 +312,21 @@ export function formatSlackMessage(notice: ParsedNotice): SlackMessage {
       notice.applicationEndDate,
       notice.applicationStatus,
     )}`,
-    "",
-    "📦 *공급 정보*",
-    supplySection,
-    "",
-    "📝 *비고*",
-    formatNotes(notice.conditions.notes),
   ];
 
-  const eligibilityLines: string[] = [];
-  if (notice.conditions.incomeLimit) {
-    eligibilityLines.push(`  • 소득기준: ${notice.conditions.incomeLimit}`);
+  if (eligibilityChecks.length > 0) {
+    const eligibilityLines = eligibilityChecks.map((check) => {
+      const icon = check.result === "pass" ? "통과" : check.result === "fail" ? "미충족" : "확인필요";
+      const raw = check.rawCondition ? ` (${check.rawCondition})` : "";
+      return `  ${icon} ${check.label}: ${check.userValue ?? ""}${raw}`;
+    });
+    lines.push("", "✅ *자격 판정*", ...eligibilityLines);
   }
 
-  if (notice.conditions.noHomeCondition) {
-    eligibilityLines.push(`  • 무주택: ${notice.conditions.noHomeCondition}`);
-  }
+  lines.push("", "📦 *공급 정보*", supplySection);
 
-  if (eligibilityLines.length > 0) {
-    lines.push("", "✅ *자격 요약*", ...eligibilityLines);
+  if (notice.conditions.notes) {
+    lines.push("", "📝 *비고*", formatNotes(notice.conditions.notes));
   }
 
   lines.push("", `🆔 공고 ID: ${formatPanIdLink(notice.panId, notice.noticeUrl)}`);
@@ -356,6 +378,7 @@ function postToSlack(webhookUrl: string, message: SlackMessage): Promise<void> {
 export async function sendSlackNotification(
   webhookUrl: string,
   notices: ParsedNotice[],
+  user: UserProfile,
   onProgress?: ProgressReporter,
 ): Promise<void> {
   const grouped = groupNoticesByStatus(notices);
@@ -392,7 +415,8 @@ export async function sendSlackNotification(
     }
 
     for (const notice of bucketNotices) {
-      const message = formatSlackMessage(notice);
+      const checks = buildEligibilityChecks(notice, user);
+      const message = formatSlackMessage(notice, checks, user.districts);
       await postToSlack(webhookUrl, message);
       if (!onProgress) {
         console.log(`[notifier] 전송 완료: ${notice.title}`);

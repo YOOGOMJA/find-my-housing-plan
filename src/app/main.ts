@@ -95,7 +95,7 @@ export async function runMain(): Promise<void> {
 
   if (matched.length > 0) {
     console.log("[5/5] Slack 알림 전송 중...");
-    await sendSlackNotification(config.slackWebhookUrl, matched, progress.report);
+    await sendSlackNotification(config.slackWebhookUrl, matched, config.user, progress.report);
     progress.flush();
     markNotifiedNotices(notifiedState, matched, runId);
     saveNotifiedState(notifiedState);
