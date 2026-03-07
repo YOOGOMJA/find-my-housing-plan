@@ -64,6 +64,17 @@ describe("buildClaudePrompt 출력에서 신규 필드 파싱", () => {
     const result = parseAmountToManwon("1억 2,000만원");
     expect(result).toBe(12000);
   });
+
+  it("한글 접두어가 있는 순수 원 단위 표기를 변환한다", () => {
+    // manMatch·eokMatch 모두 미매치 → wonMatch 경로: 8,671,000원 → 867.1만원
+    const result = parseAmountToManwon("임대보증금 8,671,000원");
+    expect(result).toBe(867.1);
+  });
+
+  it("순수 원 단위에서 만원 접미어가 없으면 정상 변환한다", () => {
+    const result = parseAmountToManwon("145,630원");
+    expect(result).toBeCloseTo(14.563, 2);
+  });
 });
 
 describe("buildClaudePrompt", () => {

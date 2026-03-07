@@ -247,4 +247,34 @@ describe("자격 판정 (buildEligibilityChecks)", () => {
     const sub = checks.find((c) => c.label === "청약통장");
     expect(sub?.result).toBe("pass");
   });
+
+  it("자동차 자산 통과 케이스", () => {
+    const notice = {
+      ...baseNotice,
+      conditions: { ...baseNotice.conditions, carAssetLimit: "자동차 3,683만원 이하" },
+    };
+    const checks = buildEligibilityChecks(notice, { ...baseUser, carAsset: 3000 });
+    const car = checks.find((c) => c.label === "자동차");
+    expect(car?.result).toBe("pass");
+  });
+
+  it("자동차 자산 초과 케이스", () => {
+    const notice = {
+      ...baseNotice,
+      conditions: { ...baseNotice.conditions, carAssetLimit: "자동차 3,683만원 이하" },
+    };
+    const checks = buildEligibilityChecks(notice, { ...baseUser, carAsset: 4000 });
+    const car = checks.find((c) => c.label === "자동차");
+    expect(car?.result).toBe("fail");
+  });
+
+  it("자동차 기준 파싱 불가 시 unknown", () => {
+    const notice = {
+      ...baseNotice,
+      conditions: { ...baseNotice.conditions, carAssetLimit: "자동차 기준 별도 문의" },
+    };
+    const checks = buildEligibilityChecks(notice, baseUser);
+    const car = checks.find((c) => c.label === "자동차");
+    expect(car?.result).toBe("unknown");
+  });
 });

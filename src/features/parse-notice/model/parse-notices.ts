@@ -154,8 +154,9 @@ export function parseAmountToManwon(text: string | null | undefined): number | n
   }
 
   if (!matched) {
-    // "8,671,000원" 형태 (원 단위) → 만원으로 변환
-    const wonMatch = text.match(/([\d,]+)\s*원/);
+    // 순수 원 단위 표기 처리: "8,671,000원" → 만원 변환
+    // 부정 후방 탐색으로 "만원"·"억원"의 "원" 부분에는 매치되지 않도록 보장
+    const wonMatch = text.match(/(?<![만억])([\d,]+)\s*원/);
     if (wonMatch) {
       const won = parseFloat(wonMatch[1].replace(/,/g, ""));
       if (isFinite(won)) { return won / 10000; }
