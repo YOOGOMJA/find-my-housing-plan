@@ -1,5 +1,5 @@
 import { Notice } from "../entities/notice";
-import { selectProcessedNotices } from "./main";
+import { buildCollectOptions, isReprocessDryRunMode, selectProcessedNotices } from "./main";
 
 const baseNotice = (panId: string): Notice => ({
   panId,
@@ -35,5 +35,38 @@ describe("selectProcessedNotices", () => {
 
     const result = selectProcessedNotices(notices, candidates, new Set(["B"]));
     expect(result.map((notice) => notice.panId)).toEqual(["A", "B"]);
+  });
+});
+
+describe("isReprocessDryRunMode", () => {
+  it("재처리 모드 + dry-run일 때만 true", () => {
+    expect(isReprocessDryRunMode(true, true)).toBe(true);
+    expect(isReprocessDryRunMode(false, true)).toBe(false);
+    expect(isReprocessDryRunMode(true, false)).toBe(false);
+  });
+});
+
+describe("buildCollectOptions", () => {
+  const performance = {
+    collectConcurrency: 4,
+    httpKeepAlive: true,
+  };
+
+  it("일반 모드에서는 lookbackMonths를 전달하지 않는다", () => {
+    const options = buildCollectOptions(false, performance, 3);
+    expect(options).toEqual({
+      concurrency: 4,
+      keepAlive: true,
+    });
+    expect("lookbackMonths" in options).toBe(false);
+  });
+
+  it("재처리 모드에서는 lookbackMonths를 전달한다", () => {
+    const options = buildCollectOptions(true, performance, 3);
+    expect(options).toEqual({
+      concurrency: 4,
+      keepAlive: true,
+      lookbackMonths: 3,
+    });
   });
 });

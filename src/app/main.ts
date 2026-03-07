@@ -37,6 +37,29 @@ export function selectProcessedNotices(
   return notices.filter((notice) => !candidatePanIds.has(notice.panId) || !failedPanIds.has(notice.panId));
 }
 
+export function isReprocessDryRunMode(isReprocess: boolean, dryRun: boolean): boolean {
+  return isReprocess && dryRun;
+}
+
+export function buildCollectOptions(
+  isReprocess: boolean,
+  performance: { collectConcurrency: number; httpKeepAlive: boolean },
+  lookbackMonths: number,
+): { concurrency: number; keepAlive: boolean; lookbackMonths?: number } {
+  if (isReprocess) {
+    return {
+      concurrency: performance.collectConcurrency,
+      keepAlive: performance.httpKeepAlive,
+      lookbackMonths,
+    };
+  }
+
+  return {
+    concurrency: performance.collectConcurrency,
+    keepAlive: performance.httpKeepAlive,
+  };
+}
+
 export async function runMain(): Promise<void> {
   const chalk = (await import("chalk")).default;
   loadEnv();
@@ -45,6 +68,7 @@ export async function runMain(): Promise<void> {
   const notifiedState = loadNotifiedState();
   const runId = new Date().toISOString();
   const isReprocess = config.reprocess.enabled;
+  const isReprocessDryRun = isReprocessDryRunMode(isReprocess, config.reprocess.dryRun);
   const processedKeys = isReprocess ? new Set<string>() : toProcessedKeySet(processedState);
   const progress = createProgressReporter();
   const summaryLines: string[] = [];
@@ -64,16 +88,17 @@ export async function runMain(): Promise<void> {
   let warningMessage: string | null = null;
 
   let stageStartedAt = Date.now();
-  const notices = await collectNotices(config.apiKey, processedKeys, progress.report, {
-    concurrency: config.performance.collectConcurrency,
-    keepAlive: config.performance.httpKeepAlive,
-    lookbackMonths: config.reprocess.lookbackMonths,
-  });
+  const notices = await collectNotices(
+    config.apiKey,
+    processedKeys,
+    progress.report,
+    buildCollectOptions(isReprocess, config.performance, config.reprocess.lookbackMonths),
+  );
   stageTimingsMs.collect = Date.now() - stageStartedAt;
   summaryLines.push(`📦 처리 대상 공고 ${notices.length}건`);
   if (isReprocess) {
     summaryLines.push(`🔁 재처리 모드: 최근 ${config.reprocess.lookbackMonths}개월, 상한 ${config.reprocess.maxNotifications}건`);
-    if (config.reprocess.dryRun) {
+    if (isReprocessDryRun) {
       summaryLines.push("🧪 재처리 dry-run: Slack 전송/상태 저장 생략");
     }
   }
@@ -230,7 +255,7 @@ export async function runMain(): Promise<void> {
 
   if (limitedMatched.length > 0 || limitedManualReviewNotices.length > 0) {
     stageStartedAt = Date.now();
-    if (config.reprocess.dryRun) {
+    if (isReprocessDryRun) {
       stageTimingsMs.notify = Date.now() - stageStartedAt;
       summaryLines.push(`📨 Slack 알림 예정 ${limitedMatched.length}건, 수동 확인 예정 ${limitedManualReviewNotices.length}건 (dry-run)`);
     } else {
@@ -261,7 +286,7 @@ export async function runMain(): Promise<void> {
   if (failedPanIdSet.size > 0) {
     warningMessage = `⚠ 파싱 실패 ${failedPanIdSet.size}건은 processed 상태로 기록하지 않습니다.`;
   }
-  if (!config.reprocess.dryRun) {
+  if (!isReprocessDryRun) {
     markProcessedNotices(processedState, processedTargets);
     saveProcessedState(processedState);
   }
