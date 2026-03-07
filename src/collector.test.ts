@@ -4,9 +4,9 @@ import {
   inferListStatusPhase,
   isNoticeOpen,
   parsePanId,
-  shouldCollectBySeen,
-  toSeenKey,
+  shouldCollectByProcessed,
 } from "./collector";
+import { toProcessedKey } from "./state";
 
 describe("extractItems", () => {
   it("배열 구조 응답에서 아이템 배열을 추출한다", () => {
@@ -82,24 +82,19 @@ describe("classifyApplicationStatus", () => {
   });
 });
 
-describe("shouldCollectBySeen", () => {
+describe("shouldCollectByProcessed", () => {
   it("동일 phase key가 있으면 수집하지 않는다", () => {
-    const seen = new Set([toSeenKey("A001", "open")]);
-    expect(shouldCollectBySeen(seen, "A001", "open")).toBe(false);
+    const processed = new Set([toProcessedKey("A001", "open")]);
+    expect(shouldCollectByProcessed(processed, "A001", "open")).toBe(false);
   });
 
-  it("open은 legacy panId만 있어도 한번 더 수집한다", () => {
-    const seen = new Set(["A001"]);
-    expect(shouldCollectBySeen(seen, "A001", "open")).toBe(true);
-  });
-
-  it("upcoming은 legacy panId가 있으면 수집하지 않는다", () => {
-    const seen = new Set(["A001"]);
-    expect(shouldCollectBySeen(seen, "A001", "upcoming")).toBe(false);
+  it("동일 panId라도 phase가 다르면 수집한다", () => {
+    const processed = new Set([toProcessedKey("A001", "upcoming")]);
+    expect(shouldCollectByProcessed(processed, "A001", "open")).toBe(true);
   });
 
   it("upcoming으로 본 공고가 open으로 전이되면 다시 수집한다", () => {
-    const seen = new Set([toSeenKey("A001", "upcoming")]);
-    expect(shouldCollectBySeen(seen, "A001", "open")).toBe(true);
+    const processed = new Set([toProcessedKey("A001", "upcoming")]);
+    expect(shouldCollectByProcessed(processed, "A001", "open")).toBe(true);
   });
 });
