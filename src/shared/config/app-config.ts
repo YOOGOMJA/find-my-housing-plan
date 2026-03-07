@@ -7,6 +7,13 @@ export interface AppConfig {
   anthropicKey: string;
   slackWebhookUrl: string;
   user: UserProfile;
+  performance: {
+    collectConcurrency: number;
+    classifyConcurrency: number;
+    parseConcurrency: number;
+    httpKeepAlive: boolean;
+    timingSummary: boolean;
+  };
 }
 
 function requireEnv(key: string): string {
@@ -36,6 +43,25 @@ function parseFloatValue(value: string, key: string): number {
     throw new Error(`환경변수 숫자 파싱 실패: ${key}`);
   }
 
+  return parsed;
+}
+
+function parseBooleanValue(value: string, key: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true" || normalized === "1" || normalized === "yes") {
+    return true;
+  }
+  if (normalized === "false" || normalized === "0" || normalized === "no") {
+    return false;
+  }
+  throw new Error(`환경변수 불리언 파싱 실패: ${key}`);
+}
+
+function parsePositiveIntValue(value: string, key: string): number {
+  const parsed = parseIntValue(value, key);
+  if (parsed <= 0) {
+    throw new Error(`환경변수는 1 이상의 정수여야 합니다: ${key}`);
+  }
   return parsed;
 }
 
@@ -98,11 +124,20 @@ export function loadConfig(): AppConfig {
     applicantGroup: parseApplicantGroup(optionalEnv("USER_APPLICANT_GROUP", "general")),
   };
 
+  const performance = {
+    collectConcurrency: parsePositiveIntValue(optionalEnv("COLLECT_CONCURRENCY", "4"), "COLLECT_CONCURRENCY"),
+    classifyConcurrency: parsePositiveIntValue(optionalEnv("CLASSIFY_CONCURRENCY", "2"), "CLASSIFY_CONCURRENCY"),
+    parseConcurrency: parsePositiveIntValue(optionalEnv("PARSE_CONCURRENCY", "2"), "PARSE_CONCURRENCY"),
+    httpKeepAlive: parseBooleanValue(optionalEnv("HTTP_KEEP_ALIVE", "true"), "HTTP_KEEP_ALIVE"),
+    timingSummary: parseBooleanValue(optionalEnv("PERF_TIMING_SUMMARY", "true"), "PERF_TIMING_SUMMARY"),
+  };
+
   return {
     apiKey,
     anthropicKey,
     slackWebhookUrl,
     user,
+    performance,
   };
 }
 

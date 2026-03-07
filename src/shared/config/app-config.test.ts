@@ -46,6 +46,11 @@ describe("loadConfig", () => {
     expect(config.user.maxDeposit).toBe(15000);
     expect(config.user.maxRent).toBe(50);
     expect(config.user.applicantGroup).toBe("youth");
+    expect(config.performance.collectConcurrency).toBe(4);
+    expect(config.performance.classifyConcurrency).toBe(2);
+    expect(config.performance.parseConcurrency).toBe(2);
+    expect(config.performance.httpKeepAlive).toBe(true);
+    expect(config.performance.timingSummary).toBe(true);
   });
 
   it("필수 환경변수 누락 시 오류를 던진다", () => {
@@ -100,6 +105,26 @@ describe("loadConfig", () => {
       const config = loadConfig();
       // "general"은 유효한 값이므로 그대로 반환
       expect(config.user.applicantGroup).toBe("general");
+    });
+
+    it("성능 관련 env 미설정 시 기본값을 사용한다", () => {
+      delete process.env.COLLECT_CONCURRENCY;
+      delete process.env.CLASSIFY_CONCURRENCY;
+      delete process.env.PARSE_CONCURRENCY;
+      delete process.env.HTTP_KEEP_ALIVE;
+      delete process.env.PERF_TIMING_SUMMARY;
+
+      const config = loadConfig();
+      expect(config.performance.collectConcurrency).toBe(4);
+      expect(config.performance.classifyConcurrency).toBe(2);
+      expect(config.performance.parseConcurrency).toBe(2);
+      expect(config.performance.httpKeepAlive).toBe(true);
+      expect(config.performance.timingSummary).toBe(true);
+    });
+
+    it("COLLECT_CONCURRENCY가 0 이하이면 오류를 던진다", () => {
+      process.env.COLLECT_CONCURRENCY = "0";
+      expect(() => loadConfig()).toThrow("COLLECT_CONCURRENCY");
     });
   });
 });
