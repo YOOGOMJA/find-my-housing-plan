@@ -11,12 +11,18 @@ const PAGE_SIZE = 100;
 const MAX_PAGE = 10;
 
 type JsonObject = Record<string, unknown>;
+type SupplyAreaSource = SupplyItem["areaSource"];
+type SupplyCountSource = SupplyItem["countSource"];
 
 interface NoticeDetailInfo {
   pdfUrl: string | null;
   applicationStartDate: string | null;
   applicationEndDate: string | null;
   applicationStatus: NoticeApplicationStatus;
+}
+
+interface ExtractItemsOptions {
+  preferredKeys?: string[];
 }
 
 function emitCollectProgress(
@@ -213,10 +219,23 @@ export function classifyApplicationStatus(
   return listPhase;
 }
 
-export function extractItems(body: unknown): Record<string, unknown>[] {
+function isMetaArrayKey(key: string): boolean {
+  if (key === "dsSch" || key === "resHeader") {
+    return true;
+  }
+  if (key.endsWith("Nm")) {
+    return true;
+  }
+
+  return false;
+}
+
+export function extractItems(body: unknown, options?: ExtractItemsOptions): Record<string, unknown>[] {
   if (!Array.isArray(body)) {
     return [];
   }
+
+  const candidates: Array<{ key: string; items: Record<string, unknown>[] }> = [];
 
   for (const chunk of body) {
     if (!isJsonObject(chunk)) {
@@ -224,16 +243,33 @@ export function extractItems(body: unknown): Record<string, unknown>[] {
     }
 
     for (const [key, value] of Object.entries(chunk)) {
-      if (key === "dsSch" || key === "resHeader") {
-        continue;
-      }
-
       if (!Array.isArray(value)) {
         continue;
       }
 
-      return value.filter(isJsonObject);
+      candidates.push({
+        key,
+        items: value.filter(isJsonObject),
+      });
     }
+  }
+
+  const preferredKeys = options?.preferredKeys ?? [];
+  for (const preferredKey of preferredKeys) {
+    const preferred = candidates.find((candidate) => candidate.key === preferredKey && candidate.items.length > 0);
+    if (preferred) {
+      return preferred.items;
+    }
+  }
+
+  const primary = candidates.find((candidate) => !isMetaArrayKey(candidate.key) && candidate.items.length > 0);
+  if (primary) {
+    return primary.items;
+  }
+
+  const fallback = candidates.find((candidate) => candidate.items.length > 0);
+  if (fallback) {
+    return fallback.items;
   }
 
   return [];
@@ -304,10 +340,14 @@ function buildDetailParams(item: Record<string, unknown>, panId: string): Record
   };
 }
 
-async function fetchNoticeList(apiKey: string, onProgress?: ProgressReporter): Promise<Record<string, unknown>[]> {
+async function fetchNoticeList(
+  apiKey: string,
+  onProgress?: ProgressReporter,
+  lookbackMonths = 6,
+): Promise<Record<string, unknown>[]> {
   const today = new Date();
   const lookback = new Date(today);
-  lookback.setMonth(lookback.getMonth() - 6);
+  lookback.setMonth(lookback.getMonth() - lookbackMonths);
 
   const todayYmd = toYmdNumber(formatApiDate(today)) ?? 0;
   const startDate = formatApiDate(lookback);
@@ -447,22 +487,124 @@ async function fetchSupplyInfo(
   const url = buildApiUrl(SUPPLY_URL, apiKey, buildDetailParams(item, panId));
   const { status, body } = await getWithAgent(url, agent);
   assertSuccessStatus(status, url, body);
-  const items = extractItems(body);
+  const items = extractItems(body, { preferredKeys: ["dsList01", "dsList", "dsList02"] });
 
-  return items.map((supply) => ({
-    type: toString(supply.HTY_NNA),
-    area: toNumber(supply.DDO_AR),
-    count: Math.trunc(toNumber(supply.NOW_HSH_CNT)),
-  }));
+  return items
+    .filter((supply) => !isSupplyHeaderRow(supply))
+    .map((supply) => {
+      const { area, source: areaSource } = parseSupplyArea(supply);
+      const { count, source: countSource } = parseSupplyCount(supply);
+      const rawTypeText = toString(supply.HTY_DS_NM).trim() || undefined;
+      const type = parseSupplyType(supply, rawTypeText);
+      const address = parseSupplyAddress(supply);
+
+      return {
+        type,
+        area,
+        count,
+        address,
+        areaSource,
+        countSource,
+        rawTypeText,
+      };
+    });
+}
+
+function isSupplyHeaderRow(supply: Record<string, unknown>): boolean {
+  const type = toString(supply.HTY_DS_NM).trim();
+  const count = toString(supply.GNR_SPL_RMNO).trim();
+  const area = toString(supply.DDO_AR).trim();
+  const address = toString(supply.LTR_UNT_NM).trim();
+  return (
+    type === "주택유형"
+    || count === "공급호수"
+    || area === "전용면적"
+    || address === "상세지역"
+  );
+}
+
+function parseAreaFromTypeText(rawTypeText: string): number {
+  const match = rawTypeText.match(/(\d+(?:\.\d+)?)/);
+  if (!match) {
+    return 0;
+  }
+
+  const parsed = Number.parseFloat(match[1]);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function parseSupplyArea(supply: Record<string, unknown>): { area: number; source: SupplyAreaSource } {
+  const areaFromDdoAr = toNumber(supply.DDO_AR);
+  if (areaFromDdoAr > 0) {
+    return { area: areaFromDdoAr, source: "DDO_AR" };
+  }
+
+  const rawTypeText = toString(supply.HTY_DS_NM).trim();
+  const areaFromType = parseAreaFromTypeText(rawTypeText);
+  if (areaFromType > 0) {
+    return { area: areaFromType, source: "HTY_DS_NM" };
+  }
+
+  return { area: 0, source: "UNKNOWN" };
+}
+
+function parseSupplyCount(supply: Record<string, unknown>): { count: number; source: SupplyCountSource } {
+  const countFromNow = Math.trunc(toNumber(supply.NOW_HSH_CNT));
+  if (countFromNow > 0) {
+    return { count: countFromNow, source: "NOW_HSH_CNT" };
+  }
+
+  const countFromGeneral = Math.trunc(toNumber(supply.GNR_SPL_RMNO));
+  if (countFromGeneral > 0) {
+    return { count: countFromGeneral, source: "GNR_SPL_RMNO" };
+  }
+
+  return { count: 0, source: "UNKNOWN" };
+}
+
+function parseSupplyType(supply: Record<string, unknown>, rawTypeText: string | undefined): string {
+  const directType = toString(supply.HTY_NNA).trim();
+  if (directType) {
+    return directType;
+  }
+
+  if (rawTypeText) {
+    const numberMatch = rawTypeText.match(/(\d+(?:\.\d+)?)/);
+    if (numberMatch) {
+      return numberMatch[1];
+    }
+    return rawTypeText;
+  }
+
+  return "미상";
+}
+
+function parseSupplyAddress(supply: Record<string, unknown>): string | null {
+  const unit = toString(supply.LTR_UNT_NM).trim();
+  const region = toString(supply.SBD_CNP_NM).trim();
+  if (unit && region && !unit.includes(region)) {
+    return `${region} ${unit}`.trim();
+  }
+
+  if (unit) {
+    return unit;
+  }
+
+  if (region) {
+    return region;
+  }
+
+  return null;
 }
 
 export async function collectNotices(
   apiKey: string,
   processedKeys: Set<string>,
   onProgress?: ProgressReporter,
-  options?: { concurrency?: number; keepAlive?: boolean },
+  options?: { concurrency?: number; keepAlive?: boolean; lookbackMonths?: number },
 ): Promise<Notice[]> {
-  const rawItems = await fetchNoticeList(apiKey, onProgress);
+  const lookbackMonths = Math.max(1, Math.floor(options?.lookbackMonths ?? 6));
+  const rawItems = await fetchNoticeList(apiKey, onProgress, lookbackMonths);
   const total = rawItems.length;
   const concurrency = Math.max(1, Math.floor(options?.concurrency ?? 4));
   const keepAlive = options?.keepAlive ?? true;
