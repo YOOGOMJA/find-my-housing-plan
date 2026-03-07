@@ -38,6 +38,8 @@ export async function runMain(): Promise<void> {
   console.log(`  처리 대상 공고 ${notices.length}건`);
 
   if (notices.length === 0) {
+    progress.complete();
+    progress.flush();
     console.log("마감 전 미처리 공고가 없습니다.");
     return;
   }
@@ -49,6 +51,8 @@ export async function runMain(): Promise<void> {
   if (candidates.length === 0) {
     markProcessedNotices(processedState, notices);
     saveProcessedState(processedState);
+    progress.complete();
+    progress.flush();
     console.log("선호조건에 맞는 공고가 없습니다.");
     return;
   }
@@ -87,5 +91,7 @@ export async function runMain(): Promise<void> {
   markProcessedNotices(processedState, notices);
   saveProcessedState(processedState);
 
+  progress.complete();
+  progress.flush();
   console.log("완료.");
 }
