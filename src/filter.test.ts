@@ -96,6 +96,35 @@ describe("matchesNoticeEligibility", () => {
 
     expect(matchesNoticeEligibility(notice, baseUser)).toBe(true);
   });
+
+  it("소득 기준(만원) 초과 시 false", () => {
+    const notice = {
+      ...baseNotice,
+      conditions: { ...baseNotice.conditions, incomeLimit: "월평균소득 300만원 이하" },
+    };
+
+    expect(matchesNoticeEligibility(notice, { ...baseUser, income: 301 })).toBe(false);
+  });
+
+  it("PDF가 있는데 파싱 결과가 비어 있으면 false", () => {
+    const notice = {
+      ...baseNotice,
+      pdfUrl: "https://example.com/sample.pdf",
+      conditions: {
+        incomeLimit: null,
+        assetLimit: null,
+        carAssetLimit: null,
+        noHomeCondition: null,
+        subscriptionCondition: null,
+        deposit: {},
+        rent: {},
+        target: null,
+        notes: null,
+      },
+    };
+
+    expect(matchesNoticeEligibility(notice, baseUser)).toBe(false);
+  });
 });
 
 describe("filterNotices", () => {

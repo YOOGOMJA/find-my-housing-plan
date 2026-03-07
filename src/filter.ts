@@ -58,6 +58,44 @@ function parseAssetLimit(text: string): number | null {
   return null;
 }
 
+function parseIncomeLimit(text: string): number | null {
+  const amountMatches = [...text.matchAll(/([\d,]+(?:\.\d+)?)\s*만\s*원/g)];
+  if (amountMatches.length > 0) {
+    const values = amountMatches
+      .map((match) => Number.parseFloat(match[1].replace(/,/g, "")))
+      .filter((value) => Number.isFinite(value));
+
+    if (values.length > 0) {
+      // 다수 값이 추출되면 가장 보수적인 상한으로 판단
+      return Math.min(...values);
+    }
+  }
+
+  const eokMatch = text.match(/([\d.]+)\s*억/);
+  if (eokMatch) {
+    const value = Number.parseFloat(eokMatch[1]) * 10000;
+    return Number.isFinite(value) ? value : null;
+  }
+
+  return null;
+}
+
+function hasExtractedEligibilityData(notice: ParsedNotice): boolean {
+  const { conditions } = notice;
+
+  return Boolean(
+    conditions.incomeLimit ||
+      conditions.assetLimit ||
+      conditions.carAssetLimit ||
+      conditions.noHomeCondition ||
+      conditions.subscriptionCondition ||
+      conditions.target ||
+      conditions.notes ||
+      Object.keys(conditions.deposit).length > 0 ||
+      Object.keys(conditions.rent).length > 0,
+  );
+}
+
 function normalizeRegionToken(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -111,13 +149,15 @@ export function matchesHousingPreference(notice: HousingPreferenceNotice, user: 
 export function matchesNoticeEligibility(notice: ParsedNotice, user: UserProfile): boolean {
   const { conditions } = notice;
 
+  // PDF가 있는데 파싱 결과가 비어 있으면 오탐 방지를 위해 제외
+  if (notice.pdfUrl && !hasExtractedEligibilityData(notice)) {
+    return false;
+  }
+
   if (conditions.incomeLimit) {
-    const ratioMatch = conditions.incomeLimit.match(/(\d+(?:\.\d+)?)\s*%\s*이하/);
-    if (ratioMatch) {
-      const ratio = Number.parseFloat(ratioMatch[1]);
-      if (!Number.isFinite(ratio)) {
-        return true;
-      }
+    const limit = parseIncomeLimit(conditions.incomeLimit);
+    if (limit !== null && user.income > limit) {
+      return false;
     }
   }
 

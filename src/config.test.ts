@@ -44,4 +44,13 @@ describe("loadConfig", () => {
     process.env.PUBLIC_DATA_API_KEY = "";
     expect(() => loadConfig()).toThrow("PUBLIC_DATA_API_KEY");
   });
+
+  it("숫자 환경변수가 숫자가 아니면 오류를 던진다", () => {
+    process.env.PUBLIC_DATA_API_KEY = "test-api-key";
+    process.env.ANTHROPIC_API_KEY = "test-anthropic-key";
+    process.env.SLACK_WEBHOOK_URL = "https://hooks.slack.com/test";
+    process.env.USER_AGE = "abc";
+
+    expect(() => loadConfig()).toThrow("USER_AGE");
+  });
 });

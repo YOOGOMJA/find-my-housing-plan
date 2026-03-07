@@ -21,12 +21,22 @@ function optionalEnv(key: string, fallback: string): string {
   return process.env[key] || fallback;
 }
 
-function parseIntValue(value: string): number {
-  return Number.parseInt(value, 10);
+function parseIntValue(value: string, key: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) {
+    throw new Error(`환경변수 숫자 파싱 실패: ${key}`);
+  }
+
+  return parsed;
 }
 
-function parseFloatValue(value: string): number {
-  return Number.parseFloat(value);
+function parseFloatValue(value: string, key: string): number {
+  const parsed = Number.parseFloat(value);
+  if (Number.isNaN(parsed)) {
+    throw new Error(`환경변수 숫자 파싱 실패: ${key}`);
+  }
+
+  return parsed;
 }
 
 export function loadEnv(): void {
@@ -66,21 +76,21 @@ export function loadConfig(): AppConfig {
   }
 
   const user: UserProfile = {
-    age: parseIntValue(requireEnv("USER_AGE")),
+    age: parseIntValue(requireEnv("USER_AGE"), "USER_AGE"),
     maritalStatus,
-    householdSize: parseIntValue(optionalEnv("USER_HOUSEHOLD_SIZE", "1")),
+    householdSize: parseIntValue(optionalEnv("USER_HOUSEHOLD_SIZE", "1"), "USER_HOUSEHOLD_SIZE"),
     currentRegion: optionalEnv("USER_CURRENT_REGION", ""),
-    noHomeYears: parseFloatValue(optionalEnv("USER_NO_HOME_YEARS", "0")),
-    income: parseFloatValue(optionalEnv("USER_INCOME", "0")),
-    asset: parseFloatValue(optionalEnv("USER_ASSET", "0")),
-    carAsset: parseFloatValue(optionalEnv("USER_CAR_ASSET", "0")),
+    noHomeYears: parseFloatValue(optionalEnv("USER_NO_HOME_YEARS", "0"), "USER_NO_HOME_YEARS"),
+    income: parseFloatValue(optionalEnv("USER_INCOME", "0"), "USER_INCOME"),
+    asset: parseFloatValue(optionalEnv("USER_ASSET", "0"), "USER_ASSET"),
+    carAsset: parseFloatValue(optionalEnv("USER_CAR_ASSET", "0"), "USER_CAR_ASSET"),
     subscriptionDate: optionalEnv("USER_SUBSCRIPTION_DATE", ""),
-    subscriptionCount: parseIntValue(optionalEnv("USER_SUBSCRIPTION_COUNT", "0")),
-    subscriptionAmount: parseFloatValue(optionalEnv("USER_SUBSCRIPTION_AMOUNT", "0")),
+    subscriptionCount: parseIntValue(optionalEnv("USER_SUBSCRIPTION_COUNT", "0"), "USER_SUBSCRIPTION_COUNT"),
+    subscriptionAmount: parseFloatValue(optionalEnv("USER_SUBSCRIPTION_AMOUNT", "0"), "USER_SUBSCRIPTION_AMOUNT"),
     regions: splitCsv(optionalEnv("USER_REGIONS", "")),
-    minArea: parseFloatValue(optionalEnv("USER_MIN_AREA", "0")),
-    maxArea: parseFloatValue(optionalEnv("USER_MAX_AREA", "999")),
-    minBuildYear: parseIntValue(optionalEnv("USER_MIN_BUILD_YEAR", "0")),
+    minArea: parseFloatValue(optionalEnv("USER_MIN_AREA", "0"), "USER_MIN_AREA"),
+    maxArea: parseFloatValue(optionalEnv("USER_MAX_AREA", "999"), "USER_MAX_AREA"),
+    minBuildYear: parseIntValue(optionalEnv("USER_MIN_BUILD_YEAR", "0"), "USER_MIN_BUILD_YEAR"),
     housingTypes: splitCsv(optionalEnv("USER_HOUSING_TYPES", "")),
   };
 
